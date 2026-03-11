@@ -55,7 +55,31 @@ PATH_1INFER_HAMLOG = "../1infer/hamlog.dat"
 PATH_RESULT_GETH = "../result-infer/geth"
 
 # ============================================
-# Monitor 配置
+# Unified Record Files (JSON Lines)
+# ============================================
+OLP_TASKS_FILE = "olp_tasks.jsonl"
+INFER_TASKS_FILE = "infer_tasks.jsonl"
+CALC_TASKS_FILE = "calc_tasks.jsonl"
+ERROR_TASKS_FILE = "error_tasks.jsonl"
+
+# ============================================
+# Batch State
+# ============================================
+BATCH_STATE_FILE = "batch_state.json"
+BATCH_DIR_PREFIX = "batch"
+BATCH_PADDING = 5
+TASK_DIR_PREFIX = "task"
+TASK_PADDING = 6
+
+# ============================================
+# Stage Subdirectories (within task dir)
+# ============================================
+OLP_SUBDIR = "olp"
+INFER_SUBDIR = "infer"
+SCF_SUBDIR = "scf"
+
+# ============================================
+# Monitor Configuration
 # ============================================
 from dlazy.exceptions import FailureType
 

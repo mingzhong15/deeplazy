@@ -154,11 +154,9 @@ class WorkflowExecutor:
         logger = get_logger("executor.infer")
         logger.info("run_infer_stage: group_index=%d, workdir=%s", group_index, workdir)
 
-        # 1. 加载配置
         config = load_global_config_section(Path(global_config), "1infer")
         workdir = Path(workdir) if workdir else Path.cwd()
 
-        # 2. 创建上下文
         workflow_root = get_workflow_root(workdir)
         result_dir = get_result_infer_dir(workflow_root)
 
@@ -177,7 +175,6 @@ class WorkflowExecutor:
             dataset_prefix=config.get("dataset_prefix", "dataset"),
         )
 
-        # 3. 执行推理
         try:
             result = InferCommandExecutor.execute(group_index, ctx)
             logger.info("run_infer_stage 完成: %s", result)

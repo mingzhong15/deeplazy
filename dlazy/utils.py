@@ -45,6 +45,10 @@ from .constants import (
     HAMILTONIAN_LINK_FILENAME,
     AUX_FILENAMES,
     INFER_TEMPLATE,
+    BATCH_DIR_PREFIX,
+    BATCH_PADDING,
+    TASK_DIR_PREFIX,
+    TASK_PADDING,
 )
 
 
@@ -356,3 +360,13 @@ def generate_random_paths(base_dir: Path) -> Tuple[Path, Path]:
     geth_path = base_dir / gen_path()
 
     return scf_path, geth_path
+
+
+def get_batch_dir(workflow_root: Path, batch_index: int) -> Path:
+    """Get batch directory path."""
+    return workflow_root / f"{BATCH_DIR_PREFIX}.{batch_index:0{BATCH_PADDING}d}"
+
+
+def get_task_dir(batch_dir: Path, task_index: int) -> Path:
+    """Get task directory path within a batch."""
+    return batch_dir / f"{TASK_DIR_PREFIX}.{task_index:0{TASK_PADDING}d}"
