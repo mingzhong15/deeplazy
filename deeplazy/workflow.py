@@ -14,17 +14,19 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from .template_generator import generate_submit_script
-from .utils import load_yaml_config, parse_folders_file, chunk_records
 from .constants import (
+    DEFAULT_MAX_RETRIES,
     FOLDERS_FILE,
-    HAMLOG_FILE,
     GROUP_INFO_FILE,
     GROUP_MAPPING_FILE,
-    GROUP_PREFIX,
     GROUP_PADDING,
+    GROUP_PREFIX,
+    HAMLOG_FILE,
 )
-
+from .exceptions import AbortException, FailureType
+from .monitor import JobMonitor, MonitorConfig, TaskError
+from .template_generator import generate_submit_script
+from .utils import chunk_records, load_yaml_config, parse_folders_file
 
 STAGES = ["0olp", "1infer", "2calc"]
 JOB_NAMES = {"0olp": "B-olp", "1infer": "B-infer", "2calc": "B-calc"}
@@ -47,6 +49,7 @@ class WorkflowManager:
         self.log_file = self.workdir / LOG_FILE
         self.pid_file = self.workdir / PID_FILE
         self.config = self._load_config()
+        self.monitor = JobMonitor(MonitorConfig(max_retries=DEFAULT_MAX_RETRIES))
 
     def _load_config(self) -> Dict[str, Any]:
         """加载配置文件"""
@@ -85,7 +88,10 @@ class WorkflowManager:
             with open(self.state_file, "r", encoding="utf-8") as f:
                 fcntl.flock(f.fileno(), fcntl.LOCK_SH)
                 try:
-                    return json.load(f)
+                    state = json.load(f)
+                    if "monitor" in state:
+                        self.monitor.restore_from_state(state["monitor"])
+                    return state
                 finally:
                     fcntl.flock(f.fileno(), fcntl.LOCK_UN)
         except Exception:
@@ -94,6 +100,7 @@ class WorkflowManager:
     def _save_state(self, state: Dict[str, Any]) -> None:
         """保存状态"""
         state["last_update"] = datetime.now().isoformat()
+        state["monitor"] = self.monitor.save_state()
         temp_file = self.state_file.with_suffix(".tmp")
 
         try:
@@ -339,11 +346,20 @@ class WorkflowManager:
         )
 
         if result.returncode != 0:
+            self.monitor.report_error(
+                TaskError(
+                    stage=stage_name,
+                    failure_type=FailureType.SUBMIT_FAILED,
+                    message=f"sbatch failed: {result.stderr}",
+                    timestamp=datetime.now(),
+                )
+            )
             return None
 
         output = result.stdout.strip()
         if "Submitted batch job" in output:
             job_id = output.split()[-1]
+            self.monitor.state.job_id = job_id
             return job_id
 
         return None
@@ -472,6 +488,13 @@ class WorkflowManager:
 
         try:
             while True:
+                if self.monitor.should_abort():
+                    logger.error(f"快速失败: {self.monitor.state.abort_reason}")
+                    state["status"] = "aborted"
+                    state["abort_reason"] = self.monitor.state.abort_reason
+                    self._save_state(state)
+                    break
+
                 elapsed_hours = (datetime.now() - start_time).total_seconds() / 3600
                 if elapsed_hours > MAX_RUNTIME_HOURS:
                     logger.error(f"运行时间超过 {MAX_RUNTIME_HOURS} 小时，自动退出")
@@ -497,7 +520,6 @@ class WorkflowManager:
                     blocked_count = 0
                     retry_count = state["stages"][current_stage].get("retry_count", 0)
 
-                    # 检测是否是重试（之前已提交过作业）
                     previous_job_id = state["stages"][current_stage].get("job_id")
                     if previous_job_id:
                         retry_count += 1
@@ -530,6 +552,14 @@ class WorkflowManager:
                         }
                         self._save_state(state)
                     else:
+                        if self.monitor.should_abort():
+                            logger.error(
+                                f"[{current_stage}] 作业提交失败，触发快速失败"
+                            )
+                            state["status"] = "aborted"
+                            state["abort_reason"] = self.monitor.state.abort_reason
+                            self._save_state(state)
+                            break
                         retry_count += 1
                         state["total_retry_count"] = (
                             state.get("total_retry_count", 0) + 1
@@ -581,6 +611,28 @@ class WorkflowManager:
                     logger.error(
                         f"[{current_stage}] 失败: {details.get('reason', '未知')}"
                     )
+
+                    job_state = details.get("job_state", "")
+                    if job_state in ["TIMEOUT", "NODE_FAIL"]:
+                        ftype = FailureType.NODE_ERROR
+                    else:
+                        ftype = FailureType.SLURM_FAILED
+
+                    self.monitor.report_error(
+                        TaskError(
+                            stage=current_stage,
+                            failure_type=ftype,
+                            message=details.get("reason", "job failed"),
+                            timestamp=datetime.now(),
+                        )
+                    )
+
+                    if self.monitor.should_abort():
+                        logger.error(f"[{current_stage}] 失败次数超过限制，快速失败")
+                        state["status"] = "aborted"
+                        state["abort_reason"] = self.monitor.state.abort_reason
+                        self._save_state(state)
+                        break
 
                     retry_count = (
                         state["stages"][current_stage].get("retry_count", 0) + 1
