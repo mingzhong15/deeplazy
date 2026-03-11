@@ -42,42 +42,24 @@ from .utils import (
     load_global_config_section,
     load_yaml_config,
 )
+from .workflow_base import WorkflowBase
 
 
-class BatchWorkflowManager:
+class BatchWorkflowManager(WorkflowBase):
     """Manages batch iterative computation for large-scale structure calculations."""
 
     def __init__(self, ctx: BatchContext):
+        super().__init__()
         self.ctx = ctx
         self.logger = get_logger("batch_workflow")
         self.state: Dict[str, Any] = self._load_or_init_state()
-        self.monitor: Optional[JobMonitor] = None
-        self._init_monitor()
 
-    def _init_monitor(self) -> None:
-        """Initialize monitor for error tracking."""
         if self.ctx.monitor is not None:
             self.monitor = self.ctx.monitor
-            return
-
-        monitor_config = MonitorConfig(max_retries=DEFAULT_MAX_RETRIES)
-        self.monitor = JobMonitor(monitor_config)
-
-        monitor_state_file = self.ctx.workflow_root / MONITOR_STATE_FILE
-        if monitor_state_file.exists():
-            with open(monitor_state_file, "r", encoding="utf-8") as f:
-                monitor_state = json.load(f)
-                self.monitor.restore_from_state(monitor_state)
-                self.logger.info("Restored monitor state from %s", monitor_state_file)
-
-    def _save_monitor_state(self) -> None:
-        """Save monitor state to file."""
-        if self.monitor is None:
-            return
-        monitor_state_file = self.ctx.workflow_root / MONITOR_STATE_FILE
-        ensure_directory(monitor_state_file.parent)
-        with open(monitor_state_file, "w", encoding="utf-8") as f:
-            json.dump(self.monitor.save_state(), f, indent=2)
+        else:
+            self._init_monitor(
+                monitor_state_file=self.ctx.workflow_root / MONITOR_STATE_FILE
+            )
 
     def _load_or_init_state(self) -> Dict[str, Any]:
         """Load existing state or initialize new state."""
@@ -147,7 +129,7 @@ class BatchWorkflowManager:
                     self._run_olp_batch(batch_dir, olp_config)
                     self.state["olp_completed"] = True
                     self._save_state()
-                    self._save_monitor_state()
+                    self._save_monitor_state(self.ctx.workflow_root / MONITOR_STATE_FILE)
 
                 if self.monitor and self.monitor.should_abort():
                     raise AbortException(
@@ -160,7 +142,7 @@ class BatchWorkflowManager:
                     )
                     self.state["infer_completed"] = True
                     self._save_state()
-                    self._save_monitor_state()
+                    self._save_monitor_state(self.ctx.workflow_root / MONITOR_STATE_FILE)
 
                 if self.monitor and self.monitor.should_abort():
                     raise AbortException(
@@ -171,7 +153,7 @@ class BatchWorkflowManager:
                     self._run_calc_batch(batch_dir, calc_config)
                     self.state["calc_completed"] = True
                     self._save_state()
-                    self._save_monitor_state()
+                    self._save_monitor_state(self.ctx.workflow_root / MONITOR_STATE_FILE)
 
                 if self.monitor and self.monitor.should_abort():
                     raise AbortException(
@@ -184,7 +166,7 @@ class BatchWorkflowManager:
                 self.state["infer_completed"] = False
                 self.state["calc_completed"] = False
                 self._save_state()
-                self._save_monitor_state()
+                self._save_monitor_state(self.ctx.workflow_root / MONITOR_STATE_FILE)
 
                 olp_tasks_file = self._get_tasks_file("olp", batch_dir)
                 if not olp_tasks_file.exists():
@@ -200,7 +182,7 @@ class BatchWorkflowManager:
         except AbortException as e:
             self.logger.error("Batch workflow aborted: %s", e.reason)
             self._save_state()
-            self._save_monitor_state()
+            self._save_monitor_state(self.ctx.workflow_root / MONITOR_STATE_FILE)
             return {
                 "status": "aborted",
                 "reason": e.reason,
