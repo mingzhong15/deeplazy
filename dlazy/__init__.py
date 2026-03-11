@@ -13,7 +13,7 @@ from .exceptions import (
     HamiltonianNotFoundError,
 )
 
-__version__ = "2.0.0"
+__version__ = "2.2.0"
 __all__ = [
     "WorkflowExecutor",
     "OLPContext",

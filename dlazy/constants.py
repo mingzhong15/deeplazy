@@ -57,7 +57,7 @@ PATH_RESULT_GETH = "../result-infer/geth"
 # ============================================
 # Monitor 配置
 # ============================================
-from deeplazy.exceptions import FailureType
+from dlazy.exceptions import FailureType
 
 DEFAULT_MAX_RETRIES = {
     FailureType.SUBMIT_FAILED: 0,

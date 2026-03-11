@@ -5,13 +5,13 @@ from datetime import datetime
 
 import pytest
 
-from deeplazy.exceptions import FailureType
+from dlazy.exceptions import FailureType
 
 
 class TestMonitorConfig:
     def test_default_config(self):
-        from deeplazy.constants import DEFAULT_MAX_RETRIES
-        from deeplazy.monitor import MonitorConfig
+        from dlazy.constants import DEFAULT_MAX_RETRIES
+        from dlazy.monitor import MonitorConfig
 
         config = MonitorConfig(max_retries=DEFAULT_MAX_RETRIES)
         assert config.max_retries[FailureType.SUBMIT_FAILED] == 0
@@ -20,7 +20,7 @@ class TestMonitorConfig:
 
 class TestMonitorState:
     def test_init(self):
-        from deeplazy.monitor import MonitorState
+        from dlazy.monitor import MonitorState
 
         state = MonitorState()
         assert state.job_id is None
@@ -28,7 +28,7 @@ class TestMonitorState:
         assert state.retry_counts == {}
 
     def test_to_dict(self):
-        from deeplazy.monitor import MonitorState
+        from dlazy.monitor import MonitorState
 
         state = MonitorState(job_id="12345", abort_flag=True, abort_reason="test")
         data = state.to_dict()
@@ -36,7 +36,7 @@ class TestMonitorState:
         assert data["abort_flag"] is True
 
     def test_from_dict(self):
-        from deeplazy.monitor import MonitorState
+        from dlazy.monitor import MonitorState
 
         data = {"job_id": "12345", "abort_flag": True, "abort_reason": "test"}
         state = MonitorState.from_dict(data)
@@ -46,7 +46,7 @@ class TestMonitorState:
 
 class TestTaskError:
     def test_init(self):
-        from deeplazy.monitor import TaskError
+        from dlazy.monitor import TaskError
 
         error = TaskError(
             stage="0olp",
@@ -60,16 +60,16 @@ class TestTaskError:
 
 class TestJobMonitor:
     def test_init(self):
-        from deeplazy.constants import DEFAULT_MAX_RETRIES
-        from deeplazy.monitor import JobMonitor, MonitorConfig
+        from dlazy.constants import DEFAULT_MAX_RETRIES
+        from dlazy.monitor import JobMonitor, MonitorConfig
 
         config = MonitorConfig(max_retries=DEFAULT_MAX_RETRIES)
         monitor = JobMonitor(config)
         assert monitor.config.max_retries[FailureType.SUBMIT_FAILED] == 0
 
     def test_report_error(self):
-        from deeplazy.constants import DEFAULT_MAX_RETRIES
-        from deeplazy.monitor import JobMonitor, MonitorConfig, TaskError
+        from dlazy.constants import DEFAULT_MAX_RETRIES
+        from dlazy.monitor import JobMonitor, MonitorConfig, TaskError
 
         config = MonitorConfig(max_retries=DEFAULT_MAX_RETRIES)
         monitor = JobMonitor(config)
@@ -86,8 +86,8 @@ class TestJobMonitor:
         assert monitor.state.retry_counts[FailureType.NODE_ERROR] == 1
 
     def test_should_retry(self):
-        from deeplazy.constants import DEFAULT_MAX_RETRIES
-        from deeplazy.monitor import JobMonitor, MonitorConfig
+        from dlazy.constants import DEFAULT_MAX_RETRIES
+        from dlazy.monitor import JobMonitor, MonitorConfig
 
         config = MonitorConfig(max_retries=DEFAULT_MAX_RETRIES)
         monitor = JobMonitor(config)
@@ -97,8 +97,8 @@ class TestJobMonitor:
         assert monitor.should_retry(FailureType.CALC_ERROR) is True
 
     def test_should_abort_submit_failed(self):
-        from deeplazy.constants import DEFAULT_MAX_RETRIES
-        from deeplazy.monitor import JobMonitor, MonitorConfig, TaskError
+        from dlazy.constants import DEFAULT_MAX_RETRIES
+        from dlazy.monitor import JobMonitor, MonitorConfig, TaskError
 
         config = MonitorConfig(max_retries=DEFAULT_MAX_RETRIES)
         monitor = JobMonitor(config)
@@ -114,8 +114,8 @@ class TestJobMonitor:
         assert monitor.should_abort() is True
 
     def test_should_abort_node_error_exceeded(self):
-        from deeplazy.constants import DEFAULT_MAX_RETRIES
-        from deeplazy.monitor import JobMonitor, MonitorConfig, TaskError
+        from dlazy.constants import DEFAULT_MAX_RETRIES
+        from dlazy.monitor import JobMonitor, MonitorConfig, TaskError
 
         config = MonitorConfig(max_retries=DEFAULT_MAX_RETRIES)
         monitor = JobMonitor(config)
@@ -132,8 +132,8 @@ class TestJobMonitor:
         assert monitor.should_abort() is True
 
     def test_should_not_abort_calc_error(self):
-        from deeplazy.constants import DEFAULT_MAX_RETRIES
-        from deeplazy.monitor import JobMonitor, MonitorConfig, TaskError
+        from dlazy.constants import DEFAULT_MAX_RETRIES
+        from dlazy.monitor import JobMonitor, MonitorConfig, TaskError
 
         config = MonitorConfig(max_retries=DEFAULT_MAX_RETRIES)
         monitor = JobMonitor(config)
@@ -150,8 +150,8 @@ class TestJobMonitor:
         assert monitor.should_abort() is False
 
     def test_trigger_abort(self):
-        from deeplazy.constants import DEFAULT_MAX_RETRIES
-        from deeplazy.monitor import JobMonitor, MonitorConfig
+        from dlazy.constants import DEFAULT_MAX_RETRIES
+        from dlazy.monitor import JobMonitor, MonitorConfig
 
         config = MonitorConfig(max_retries=DEFAULT_MAX_RETRIES)
         monitor = JobMonitor(config)
@@ -163,8 +163,8 @@ class TestJobMonitor:
         assert monitor.should_abort() is True
 
     def test_save_and_restore_state(self):
-        from deeplazy.constants import DEFAULT_MAX_RETRIES
-        from deeplazy.monitor import JobMonitor, MonitorConfig
+        from dlazy.constants import DEFAULT_MAX_RETRIES
+        from dlazy.monitor import JobMonitor, MonitorConfig
 
         config = MonitorConfig(max_retries=DEFAULT_MAX_RETRIES)
         monitor = JobMonitor(config)

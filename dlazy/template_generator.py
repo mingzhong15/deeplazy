@@ -26,10 +26,10 @@ def _format_env_vars(env_vars: Dict[str, Any]) -> str:
 
 def _format_sys_path(software_config: Dict[str, Any]) -> str:
     """生成 sys.path.append 代码"""
-    deeplazy_path = software_config.get("deeplazy_path", "")
-    if not deeplazy_path:
+    dlazy_path = software_config.get("dlazy_path", "")
+    if not dlazy_path:
         return ""
-    return f"sys.path.append('{deeplazy_path}')"
+    return f"sys.path.append('{dlazy_path}')"
 
 
 def generate_embedded_olp_script(
@@ -93,7 +93,7 @@ import sys
 
 {sys_path_line}
 
-from deeplazy.executor import WorkflowExecutor
+from dlazy.executor import WorkflowExecutor
 
 try:
     result = WorkflowExecutor.run_olp_stage(
@@ -172,7 +172,7 @@ import sys
 
 {sys_path_line}
 
-from deeplazy.executor import WorkflowExecutor
+from dlazy.executor import WorkflowExecutor
 
 try:
     result = WorkflowExecutor.run_infer_stage(
@@ -252,7 +252,7 @@ import sys
 
 {sys_path_line}
 
-from deeplazy.executor import WorkflowExecutor
+from dlazy.executor import WorkflowExecutor
 
 try:
     result = WorkflowExecutor.run_calc_stage(

@@ -140,13 +140,13 @@ def cmd_validate(args):
 
 def cmd_version(args):
     """显示版本"""
-    print(f"deeplazy {__version__}")
+    print(f"dlazy {__version__}")
 
 
 def main():
     """CLI 主入口"""
     parser = argparse.ArgumentParser(
-        prog="deeplazy",
+        prog="dlazy",
         description="Material calculation workflow automation system",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )

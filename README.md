@@ -1,4 +1,4 @@
-# deeplazy
+# dlazy
 
 Material calculation workflow automation system.
 
@@ -13,30 +13,30 @@ pip install -e .
 
 ```bash
 # Show version
-deeplazy version
+dlazy version
 
 # Show help
-deeplazy --help
+dlazy --help
 
 # Run workflow
-deeplazy run --config /path/to/global_config.yaml
+dlazy run --config /path/to/global_config.yaml
 
 # Check status
-deeplazy status --config /path/to/global_config.yaml
+dlazy status --config /path/to/global_config.yaml
 
 # Stop workflow
-deeplazy stop --config /path/to/global_config.yaml
+dlazy stop --config /path/to/global_config.yaml
 
 # Restart workflow
-deeplazy restart --config /path/to/global_config.yaml
+dlazy restart --config /path/to/global_config.yaml
 
 # Run single stage (for debugging)
-deeplazy olp --config /path/to/global_config.yaml --start 0 --end 10
-deeplazy infer --config /path/to/global_config.yaml --group 1
-deeplazy calc --config /path/to/global_config.yaml --start 0 --end 5
+dlazy olp --config /path/to/global_config.yaml --start 0 --end 10
+dlazy infer --config /path/to/global_config.yaml --group 1
+dlazy calc --config /path/to/global_config.yaml --start 0 --end 5
 
 # Validate config file
-deeplazy validate --config /path/to/global_config.yaml
+dlazy validate --config /path/to/global_config.yaml
 ```
 
 ## Workflow Stages
@@ -52,6 +52,14 @@ deeplazy validate --config /path/to/global_config.yaml
 See `examples/demo-workflow/global_config.yaml` for an example configuration file.
 
 ## Changelog
+
+### v2.2.0 (2026-03-11)
+
+**Package Rename:**
+- Renamed package from `deeplazy` to `dlazy` for shorter CLI commands
+- CLI command changed: `deeplazy` → `dlazy` (e.g., `dlazy run`, `dlazy olp`)
+- Updated all imports: `from deeplazy` → `from dlazy`
+- Updated template generator: `deeplazy_path` → `dlazy_path`
 
 ### v2.1.0 (2026-03-11)
 
