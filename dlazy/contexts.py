@@ -11,12 +11,34 @@ if TYPE_CHECKING:
 
 
 @dataclass
-class OLPContext:
-    """OLP阶段上下文"""
+class BaseContext:
+    """基础上下文"""
 
     config: Dict[str, Any]
     workflow_root: Path
     workdir: Path
+
+
+@dataclass
+class BatchContext:
+    """Batch workflow context."""
+
+    config_path: Path
+    workflow_root: Path
+    batch_size: int
+    resume: bool = False
+    state_file: Optional[Path] = None
+    olp_tasks_file: Optional[Path] = None
+    infer_tasks_file: Optional[Path] = None
+    calc_tasks_file: Optional[Path] = None
+    error_tasks_file: Optional[Path] = None
+    monitor: Optional[JobMonitor] = None
+
+
+@dataclass
+class OLPContext(BaseContext):
+    """OLP阶段上下文"""
+
     result_dir: Path
     progress_file: Path
     folders_file: Path
@@ -29,12 +51,9 @@ class OLPContext:
 
 
 @dataclass
-class InferContext:
+class InferContext(BaseContext):
     """Infer阶段上下文"""
 
-    config: Dict[str, Any]
-    workflow_root: Path
-    workdir: Path
     result_dir: Path
     error_file: Path
     hamlog_file: Path
@@ -48,12 +67,9 @@ class InferContext:
 
 
 @dataclass
-class CalcContext:
+class CalcContext(BaseContext):
     """Calc阶段上下文"""
 
-    config: Dict[str, Any]
-    workflow_root: Path
-    workdir: Path
     result_dir: Path
     progress_file: Path
     folders_file: Path
