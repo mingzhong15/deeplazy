@@ -18,6 +18,8 @@ from .utils import (
     run_subprocess,
     generate_random_paths,
     get_logger,
+    get_batch_dir,
+    get_task_dir,
 )
 from .constants import (
     OVERLAP_FILENAME,
@@ -32,6 +34,26 @@ from .constants import (
     GETH_NEW_SUBDIR,
     AUX_FILENAMES,
     INFER_TEMPLATE,
+    OLP_SUBDIR,
+    INFER_SUBDIR,
+    SCF_SUBDIR,
+    OLP_TASKS_FILE,
+    INFER_TASKS_FILE,
+    CALC_TASKS_FILE,
+    ERROR_TASKS_FILE,
+)
+from .record_utils import (
+    OlpTask,
+    InferTask,
+    CalcTask,
+    ErrorTask,
+    write_olp_tasks,
+    read_olp_tasks,
+    write_infer_tasks,
+    read_infer_tasks,
+    write_calc_tasks,
+    read_calc_tasks,
+    append_error_task,
 )
 from .exceptions import (
     TransformError,
@@ -186,6 +208,68 @@ class OLPCommandExecutor:
         monitor_thread.join()
 
         return node_error_detected
+
+    @staticmethod
+    def execute_batch(
+        task_index: int,
+        poscar_path: str,
+        batch_dir: Path,
+        config: Dict[str, Any],
+    ) -> InferTask:
+        """
+        Execute single OLP task in batch mode with deterministic paths.
+
+        Args:
+            task_index: Task index within batch
+            poscar_path: POSCAR file path
+            batch_dir: Batch directory path
+            config: Configuration dict
+
+        Returns:
+            InferTask for the output
+
+        Raises:
+            Exception: If execution fails
+        """
+        logger = get_logger(f"batch.olp.task{task_index}")
+        logger.info("Processing POSCAR: %s", poscar_path)
+
+        task_dir = get_task_dir(batch_dir, task_index)
+        olp_dir = task_dir / OLP_SUBDIR
+        ensure_directory(olp_dir)
+
+        try:
+            env = os.environ.copy()
+
+            command_create = config["commands"]["create_infile"].format(
+                poscar=poscar_path,
+                scf=olp_dir,
+            )
+            subprocess.run(command_create, env=env, shell=True, check=True, text=True)
+
+            os.chdir(olp_dir)
+            command_openmx = config["commands"]["run_openmx"].format(ntasks=1)
+            subprocess.run(command_openmx, env=env, shell=True, text=True)
+
+            command_extract = config["commands"]["extract_overlap"].format(scf=olp_dir)
+            subprocess.run(command_extract, env=env, shell=True, check=True, text=True)
+
+            overlaps_file = olp_dir / OVERLAP_FILENAME
+            ok, message = validate_h5(overlaps_file)
+
+            if not ok:
+                raise Exception(f"Overlap validation failed: {message}")
+
+            logger.info("OLP completed: %s", olp_dir)
+
+            return InferTask(
+                poscar_path=poscar_path,
+                scf_path=str(olp_dir.relative_to(batch_dir.parent)),
+            )
+
+        except Exception as e:
+            logger.error("OLP failed: %s", e)
+            raise
 
 
 class InferCommandExecutor:
@@ -485,6 +569,119 @@ class InferCommandExecutor:
 
         logger.info("已写入 hamlog %d 条记录 -> %s", len(records), hamlog_file)
 
+    @staticmethod
+    def execute_batch(
+        task_index: int,
+        infer_task: InferTask,
+        batch_dir: Path,
+        config: Dict[str, Any],
+        model_dir: Path,
+        dataset_prefix: str,
+        parallel: int,
+    ) -> CalcTask:
+        """
+        Execute single Infer task in batch mode with deterministic paths.
+
+        Args:
+            task_index: Task index within batch
+            infer_task: InferTask from OLP stage
+            batch_dir: Batch directory path
+            config: Configuration dict
+            model_dir: Model directory for inference
+            dataset_prefix: Dataset prefix for config
+            parallel: Parallelism level
+
+        Returns:
+            CalcTask for the output
+
+        Raises:
+            Exception: If execution fails
+        """
+        logger = get_logger(f"batch.infer.task{task_index}")
+        logger.info("Processing InferTask: %s", infer_task.poscar_path)
+
+        task_dir = get_task_dir(batch_dir, task_index)
+        infer_dir = task_dir / INFER_SUBDIR
+        ensure_directory(infer_dir)
+
+        olp_dir = batch_dir.parent / infer_task.scf_path
+        if not olp_dir.exists():
+            raise FileNotFoundError(f"OLP directory not found: {olp_dir}")
+
+        try:
+            _ensure_symlink(olp_dir, infer_dir / "olp")
+
+            input_dft_dir = infer_dir / "input_dft"
+            ensure_directory(input_dft_dir)
+
+            transform_cmd = config["commands"]["transform"]
+            command = transform_cmd.format(
+                input_dir=infer_dir / "olp",
+                output_dir=input_dft_dir,
+                parallel=parallel,
+            )
+            logger.info("Running transform: %s", command)
+            run_subprocess(command, shell=True)
+
+            output_dir = infer_dir / "output"
+            ensure_directory(output_dir)
+
+            package_dir = Path(__file__).parent
+            template_path = package_dir / INFER_TEMPLATE
+            content = template_path.read_text(encoding="utf-8")
+            config_content = content.format(
+                inputs_dir=str(infer_dir),
+                outputs_dir=str(output_dir),
+                dataset_name=f"{dataset_prefix}_task{task_index:06d}",
+                model_dir=str(model_dir),
+            )
+            infer_config_path = infer_dir / "infer.toml"
+            write_text(infer_config_path, config_content)
+
+            infer_cmd = config["commands"]["infer"]
+            command = infer_cmd.format(config_path=infer_config_path)
+            logger.info("Running infer: %s", command)
+            run_subprocess(command, shell=True)
+
+            subdirs = [item for item in output_dir.iterdir() if item.is_dir()]
+            if not subdirs:
+                raise InferError(f"No output directory in {output_dir}")
+            latest_output = max(subdirs, key=lambda item: item.stat().st_mtime)
+
+            output_dft_dir = latest_output / DFT_SUBDIR
+            geth_new_dir = infer_dir / "geth_new"
+            ensure_directory(geth_new_dir)
+
+            source_ham = output_dft_dir / HAMILTONIAN_PRED_FILENAME
+            if not source_ham.exists():
+                raise InferError(f"Predicted Hamiltonian not found: {source_ham}")
+
+            target_ham = geth_new_dir / HAMILTONIAN_LINK_FILENAME
+            if target_ham.exists() or target_ham.is_symlink():
+                target_ham.unlink()
+            os.symlink(source_ham, target_ham)
+
+            final_geth_dir = infer_dir / GETH_SUBDIR
+            transform_reverse_cmd = config["commands"]["transform_reverse"]
+            command = transform_reverse_cmd.format(
+                input_dir=geth_new_dir,
+                output_dir=final_geth_dir,
+                parallel=parallel,
+            )
+            logger.info("Running transform_reverse: %s", command)
+            run_subprocess(command, shell=True)
+
+            logger.info("Infer completed: %s", final_geth_dir)
+
+            return CalcTask(
+                poscar_path=infer_task.poscar_path,
+                geth_path=str(final_geth_dir.relative_to(batch_dir.parent)),
+            )
+
+        except Exception as e:
+            logger.error("Infer failed: %s", e)
+            raise
+
 
 class CalcCommandExecutor:
     """Calc阶段命令执行器"""
@@ -578,4 +775,97 @@ class CalcCommandExecutor:
             write_text(
                 ctx.error_file, f"exception {result_line}: {str(e)}\n", append=True
             )
+            return ("failed", label)
+
+    @staticmethod
+    def execute_batch(
+        task_index: int,
+        calc_task: CalcTask,
+        batch_dir: Path,
+        config: Dict[str, Any],
+    ) -> Tuple[str, str]:
+        """
+        Execute single Calc task in batch mode with deterministic paths.
+
+        Args:
+            task_index: Task index within batch
+            calc_task: CalcTask from Infer stage
+            batch_dir: Batch directory path
+            config: Configuration dict
+
+        Returns:
+            (status, label) tuple
+
+        Raises:
+            Exception: If execution fails
+        """
+        logger = get_logger(f"batch.calc.task{task_index}")
+        logger.info("Processing CalcTask: %s", calc_task.poscar_path)
+
+        task_dir = get_task_dir(batch_dir, task_index)
+        scf_dir = task_dir / SCF_SUBDIR
+        geth_dir = task_dir / "geth_final"
+        ensure_directory(scf_dir)
+        ensure_directory(geth_dir)
+
+        label = Path(calc_task.poscar_path).name
+
+        try:
+            env = os.environ.copy()
+
+            command_create = config["commands"]["create_infile"].format(
+                poscar=calc_task.poscar_path,
+                scf=scf_dir,
+            )
+            subprocess.run(command_create, env=env, shell=True, check=True, text=True)
+
+            infer_geth_dir = batch_dir.parent / calc_task.geth_path
+            pred_ham = infer_geth_dir / HAMILTONIAN_LINK_FILENAME
+            if not pred_ham.exists():
+                pred_ham = infer_geth_dir / HAMILTONIAN_PRED_FILENAME
+            if not pred_ham.exists():
+                raise HamiltonianNotFoundError(
+                    f"Hamiltonian not found in {infer_geth_dir}"
+                )
+
+            target_ham = scf_dir / HAMILTONIAN_FILENAME
+            if target_ham.exists() or target_ham.is_symlink():
+                target_ham.unlink()
+            os.symlink(pred_ham, target_ham)
+
+            os.chdir(scf_dir)
+            command_run = config["commands"]["run_openmx"]
+            subprocess.run(command_run, env=env, shell=True, text=True)
+
+            subprocess.run("cat openmx.out >> openmx.scfout", shell=True, text=True)
+            subprocess.run("rm -rf openmx_rst", shell=True, text=True)
+
+            command_check = config["commands"]["check_conv"].format(scf=scf_dir)
+            result = subprocess.run(
+                command_check, env=env, shell=True, capture_output=True, text=True
+            )
+
+            if "False" in result.stdout:
+                error_type = "scferror" if "scferror" in result.stdout else "sluerror"
+                logger.error("SCF not converged: %s", error_type)
+                return ("failed", label)
+
+            os.chdir(geth_dir)
+            command_extract = config["commands"]["extract_hamiltonian"].format(
+                scf=scf_dir
+            )
+            subprocess.run(command_extract, env=env, shell=True, text=True)
+
+            hamiltonians_file = geth_dir / HAMILTONIAN_FILENAME
+            ok, message = validate_h5(hamiltonians_file)
+
+            if not ok:
+                logger.error("Hamiltonian validation failed: %s", message)
+                return ("failed", label)
+
+            logger.info("Calc completed: %s", geth_dir)
+            return ("success", label)
+
+        except Exception as e:
+            logger.error("Calc failed: %s", e)
             return ("failed", label)
