@@ -1,0 +1,113 @@
+# ============================================
+# 全局配置文件示例 - base-v0.2-slim 工作流
+# ============================================
+# 使用说明:
+#   deeplazy run --config global_config.yaml
+#   deeplazy status --config global_config.yaml
+# 
+# 简化说明：
+# - 文件名、目录结构已硬编码到 deeplazy/constants.py
+# - 阶段间数据传递路径已固定，无需配置
+# - 软件路径集中在 software 段，commands 中使用变量引用
+# ============================================
+
+# ============================================
+# 软件路径配置 (集中管理)
+# ============================================
+software:
+  python: "${HOME}/software/miniconda3/bin/python"
+  python_deeph: "${HOME}/software/miniconda3/envs/deeph-1.0.4/bin/"
+  
+  openmx_olp: "${HOME}/software/openmx/openmx3.9.9_olponly/source/openmx"
+  openmx_restart: "${HOME}/software/openmx/openmx3.9.9_resume_from_H/source/openmx"
+  
+  scripts:
+    create_infile_olp: "${HOME}/script/input_from_mind/openmx/create_infile_noniggli.py"
+    create_infile_restart: "${HOME}/script/input_from_mind/openmx/create_infile_restart.py"
+    check_conv: "${HOME}/script/input_from_mind/openmx/check_conv_openmx.py"
+    extract_overlap: "${HOME}/script/openmx_get_data_olponly.py"
+    extract_hamiltonian: "${HOME}/script/openmx_get_data.jl"
+  
+  deeph_transform: "dock.io.DeepHOldToNew"
+  deeph_infer: "deeph-infer"
+  
+
+# ============================================
+# 0olp - Overlap计算配置
+# ============================================
+0olp:
+  stru_log: "todo_list.json"
+  num_cores: 64
+  max_processes: 8
+  commands:
+    create_infile: "{python} {scripts.create_infile_olp} -i {poscar} -o {scf}"
+    run_openmx: "yhrun --ntasks={ntasks} --exclusive {openmx_olp} openmx_in.dat"
+    extract_overlap: "{python} {scripts.extract_overlap} -i {scf} -o . > process.log 2>&1"
+  
+  # SLURM 提交配置
+  slurm:
+    job_name: "B-olp"
+    partition: "th3k"
+    nodes: 1
+    ntasks_per_node: 64
+    cpus_per_task: 1
+    time: "2-00:00:00"
+    array_size: 2
+    batch_size: 5
+    modules:
+      - "hdf5/1.10.7-gcc9.4-mpich4.1.2"
+      - "openmx/3.9-gcc9.4.0-mpich4.1.2"
+    env_vars:
+      OPENBLAS_NUM_THREADS: 1
+
+# ============================================
+# 1infer - 推理阶段配置
+# ============================================
+1infer:
+  num_groups: 10
+  random_seed: 137
+  parallel: 56
+  dataset_prefix: "Alex-2M-pert-"
+  model_dir: "${HOME}/model/Alex-2M-finetune-1stbatch_4090/model"
+  commands:
+    transform: "{python_deeph}/{deeph_transform} -p {parallel} -t 2 {input_dir} {output_dir}"
+    transform_reverse: "{python_deeph}/{deeph_transform} -p {parallel} --backward -t 2 {output_dir} {input_dir}"
+    infer: "{python_deeph}/{deeph_infer} {config_path}"
+  
+  # SLURM 提交配置
+  slurm:
+    job_name: "B-infer"
+    partition: "th3k"
+    nodes: 1
+    ntasks_per_node: 1
+    cpus_per_task: 64
+    time: "2-00:00:00"
+    array_size: 20
+    modules: []
+    env_vars: {}
+
+# ============================================
+# 2calc - DFT重算配置
+# ============================================
+2calc:
+  commands:
+    create_infile: "{python} {scripts.create_infile_restart} -i {poscar} -o {scf}"
+    run_openmx: "yhrun {openmx_restart} openmx_in.dat >> openmx.std 2>&1"
+    check_conv: "{python} {scripts.check_conv} -i {scf}"
+    extract_hamiltonian: "{scripts.extract_hamiltonian} -i {scf} -o . -s true > process.log 2>&1"
+  
+  # SLURM 提交配置
+  slurm:
+    job_name: "B-calc"
+    partition: "th3k"
+    nodes: 1
+    ntasks_per_node: 64
+    cpus_per_task: 1
+    time: "4-00:00:00"
+    array_size: 10
+    batch_size: 1
+    modules:
+      - "hdf5/1.10.7-gcc9.4-mpich4.1.2"
+      - "openmx/3.9-gcc9.4.0-mpich4.1.2"
+    env_vars:
+      OPENBLAS_NUM_THREADS: 1

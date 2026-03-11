@@ -1,0 +1,271 @@
+"""工作流执行器 - 统一入口"""
+
+from __future__ import annotations
+
+import json
+import multiprocessing
+import secrets
+from functools import partial
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
+
+from .contexts import OLPContext, InferContext, CalcContext
+from .commands import OLPCommandExecutor, InferCommandExecutor, CalcCommandExecutor
+from .utils import (
+    load_global_config_section,
+    get_workflow_root,
+    get_result_olp_dir,
+    get_result_infer_dir,
+    get_result_geth_dir,
+)
+from .constants import (
+    PROGRESS_FILE,
+    FOLDERS_FILE,
+    ERROR_FILE,
+    GROUP_INFO_FILE,
+    HAMLOG_FILE,
+)
+from .exceptions import NodeError
+
+
+class WorkflowExecutor:
+    """工作流执行器 - 封装三阶段逻辑"""
+
+    # ==================== OLP 阶段 ====================
+
+    @staticmethod
+    def run_olp_stage(
+        global_config: str,
+        start: int,
+        end: int,
+        workdir: Optional[str] = None,
+        stru_log: Optional[str] = None,
+    ) -> Dict[str, int]:
+        """
+        执行 OLP 阶段
+
+        Args:
+            global_config: 全局配置文件路径
+            start: 起始索引
+            end: 结束索引
+            workdir: 工作目录（默认当前目录）
+            stru_log: 结构列表文件（覆盖配置）
+
+        Returns:
+            {'success': N, 'failed': M, 'skipped': K}
+
+        Raises:
+            ConfigError: 配置错误
+            NodeError: 节点错误（需要重算）
+        """
+        # 1. 加载配置
+        config = load_global_config_section(Path(global_config), "0olp")
+        workdir = Path(workdir) if workdir else Path.cwd()
+
+        # 2. 创建上下文
+        workflow_root = get_workflow_root(workdir)
+        result_dir = get_result_olp_dir(workflow_root)
+
+        ctx = OLPContext(
+            config=config,
+            workflow_root=workflow_root,
+            workdir=workdir,
+            result_dir=result_dir,
+            progress_file=workdir / PROGRESS_FILE,
+            folders_file=workdir / FOLDERS_FILE,
+            error_file=workdir / ERROR_FILE,
+            num_cores=config.get("num_cores", 56),
+            max_processes=config.get("max_processes", 7),
+            node_error_flag=workdir / f".node_error_flag-{secrets.token_hex(4)}",
+            stru_log=Path(stru_log) if stru_log else None,
+        )
+
+        # 3. 读取数据
+        records = WorkflowExecutor._read_olp_records(ctx, start, end)
+
+        # 4. 并行执行
+        max_processes = ctx.max_processes
+        with multiprocessing.Pool(processes=max_processes) as pool:
+            # 使用partial绑定ctx
+            execute_func = partial(OLPCommandExecutor.execute, ctx=ctx)
+            results = pool.map(execute_func, records)
+
+        # 5. 统计结果
+        stats = WorkflowExecutor._summarize_results(results)
+
+        # 6. 处理节点错误
+        if stats.get("node_error", 0) > 0:
+            # 写入重算列表
+            WorkflowExecutor._write_retry_list(ctx, results, records)
+            raise NodeError(f"检测到节点错误，已写入重算列表: {ctx.node_error_flag}")
+
+        return stats
+
+    # ==================== Infer 阶段 ====================
+
+    @staticmethod
+    def run_infer_stage(
+        global_config: str, group_index: int, workdir: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        执行 Infer 阶段
+
+        Args:
+            global_config: 全局配置文件路径
+            group_index: 组索引（1-based）
+            workdir: 工作目录
+
+        Returns:
+            执行结果
+
+        Raises:
+            GroupNotFoundError: 组不存在
+            TransformError: 格式转换失败
+            InferError: 推理失败
+        """
+        # 1. 加载配置
+        config = load_global_config_section(Path(global_config), "1infer")
+        workdir = Path(workdir) if workdir else Path.cwd()
+
+        # 2. 创建上下文
+        workflow_root = get_workflow_root(workdir)
+        result_dir = get_result_infer_dir(workflow_root)
+
+        ctx = InferContext(
+            config=config,
+            workflow_root=workflow_root,
+            workdir=workdir,
+            result_dir=result_dir,
+            error_file=workdir / ERROR_FILE,
+            hamlog_file=workdir / HAMLOG_FILE,
+            group_info_file=workdir / GROUP_INFO_FILE,
+            num_groups=config.get("num_groups", 10),
+            random_seed=config.get("random_seed", 137),
+            parallel=config.get("parallel", 56),
+            model_dir=Path(config.get("model_dir", "/path/to/model")),
+            dataset_prefix=config.get("dataset_prefix", "dataset"),
+        )
+
+        # 3. 执行推理
+        return InferCommandExecutor.execute(group_index, ctx)
+
+    # ==================== Calc 阶段 ====================
+
+    @staticmethod
+    def run_calc_stage(
+        global_config: str,
+        start: int,
+        end: int,
+        workdir: Optional[str] = None,
+        stru_log: Optional[str] = None,
+    ) -> Dict[str, int]:
+        """
+        执行 Calc 阶段
+
+        Args:
+            global_config: 全局配置文件路径
+            start: 起始索引
+            end: 结束索引
+            workdir: 工作目录
+            stru_log: 结构列表文件（覆盖默认hamlog）
+
+        Returns:
+            {'success': N, 'failed': M}
+        """
+        # 1. 加载配置
+        config = load_global_config_section(Path(global_config), "2calc")
+        workdir = Path(workdir) if workdir else Path.cwd()
+
+        # 2. 创建上下文
+        workflow_root = get_workflow_root(workdir)
+        result_dir = get_result_geth_dir(workflow_root)
+
+        ctx = CalcContext(
+            config=config,
+            workflow_root=workflow_root,
+            workdir=workdir,
+            result_dir=result_dir,
+            progress_file=workdir / PROGRESS_FILE,
+            folders_file=workdir / FOLDERS_FILE,
+            error_file=workdir / ERROR_FILE,
+            hamlog_file=workflow_root / "1infer" / HAMLOG_FILE,
+        )
+
+        # 3. 读取数据
+        records = WorkflowExecutor._read_calc_records(ctx, start, end, stru_log)
+
+        # 4. 并行执行（单进程）
+        with multiprocessing.Pool(processes=1) as pool:
+            execute_func = partial(CalcCommandExecutor.execute, ctx=ctx)
+            results = pool.map(execute_func, records)
+
+        # 5. 统计结果
+        return WorkflowExecutor._summarize_results(results)
+
+    # ==================== 辅助函数 ====================
+
+    @staticmethod
+    def _read_olp_records(ctx: OLPContext, start: int, end: int) -> List[str]:
+        """读取OLP阶段记录"""
+        stru_log = ctx.stru_log
+        if stru_log is None:
+            stru_log_path = ctx.config.get("stru_log")
+            if stru_log_path:
+                stru_log = Path(stru_log_path)
+                if not stru_log.is_absolute():
+                    stru_log = ctx.workflow_root / stru_log
+
+        if stru_log is None:
+            raise ValueError("未指定结构列表文件")
+
+        with open(stru_log, "r") as f:
+            lines = f.readlines()
+
+        records = []
+        for i in range(start, min(end, len(lines))):
+            data = json.loads(lines[i].strip())
+            records.append(data["path"])
+
+        return records
+
+    @staticmethod
+    def _read_calc_records(
+        ctx: CalcContext, start: int, end: int, stru_log: Optional[str]
+    ) -> List[Tuple[str, str]]:
+        """读取Calc阶段记录"""
+        hamlog = Path(stru_log) if stru_log else ctx.hamlog_file
+
+        with open(hamlog, "r") as f:
+            lines = f.readlines()
+
+        records = []
+        for i in range(start, min(end, len(lines))):
+            parts = lines[i].strip().split()
+            if len(parts) >= 2:
+                records.append((parts[0], parts[1]))
+
+        return records
+
+    @staticmethod
+    def _summarize_results(results: List[Tuple[str, str]]) -> Dict[str, int]:
+        """统计结果"""
+        stats = {}
+        for status, _ in results:
+            stats[status] = stats.get(status, 0) + 1
+        return stats
+
+    @staticmethod
+    def _write_retry_list(
+        ctx: OLPContext, results: List[Tuple[str, str]], records: List[str]
+    ):
+        """写入重算列表"""
+        retry_labels = [
+            Path(records[i]).name
+            for i, (status, _) in enumerate(results)
+            if status in ["node_error", "skipped"]
+        ]
+
+        if ctx.node_error_flag:
+            with open(ctx.node_error_flag, "w") as f:
+                for label in retry_labels:
+                    f.write(f"{label}\n")

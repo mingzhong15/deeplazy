@@ -1,0 +1,45 @@
+# ---------------------------------- SYSTEM ----------------------------------
+[system]
+note = "Restart workflow"
+device = "cpu"
+float_type = "fp32"
+random_seed = 137
+log_level = "info"
+jax_memory_preallocate = false
+
+
+# ----------------------------------- DATA ------------------------------------
+[data]
+inputs_dir = "{inputs_dir}"
+outputs_dir = "{outputs_dir}"
+
+[data.dft]
+data_dir_depth = 2
+
+[data.graph]
+dataset_name = "{dataset_name}"
+graph_type = "S"
+storage_type = "disk"
+disk_shards_num = 1
+disk_shards_indices = [1]
+disk_mem_buffer_size = 2048
+parallel_num = -1
+only_save_graph = false
+
+
+# ----------------------------- MODEL -----------------------------------------
+[model]
+model_dir = "{model_dir}"
+load_model_type = "latest"
+load_model_epoch = -1
+
+
+# ------------------------------ PROCESS --------------------------------------
+[process.infer]
+output_type = "h5"
+output_into = "to_output"
+target_symmetrize = true
+multi_way_jit_num = 20
+
+[process.infer.dataloader]
+batch_size = 1
