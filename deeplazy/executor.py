@@ -17,6 +17,7 @@ from .utils import (
     get_result_olp_dir,
     get_result_infer_dir,
     get_result_geth_dir,
+    get_logger,
 )
 from .constants import (
     PROGRESS_FILE,
@@ -58,6 +59,9 @@ class WorkflowExecutor:
             ConfigError: 配置错误
             NodeError: 节点错误（需要重算）
         """
+        logger = get_logger("executor.olp")
+        logger.info("run_olp_stage: start=%d, end=%d, workdir=%s", start, end, workdir)
+
         # 1. 加载配置
         config = load_global_config_section(Path(global_config), "0olp")
         workdir = Path(workdir) if workdir else Path.cwd()
@@ -82,6 +86,7 @@ class WorkflowExecutor:
 
         # 3. 读取数据
         records = WorkflowExecutor._read_olp_records(ctx, start, end)
+        logger.info("读取到 %d 条记录", len(records))
 
         # 4. 并行执行
         max_processes = ctx.max_processes
@@ -92,6 +97,7 @@ class WorkflowExecutor:
 
         # 5. 统计结果
         stats = WorkflowExecutor._summarize_results(results)
+        logger.info("run_olp_stage 完成: %s", stats)
 
         # 6. 处理节点错误
         if stats.get("node_error", 0) > 0:
@@ -123,6 +129,9 @@ class WorkflowExecutor:
             TransformError: 格式转换失败
             InferError: 推理失败
         """
+        logger = get_logger("executor.infer")
+        logger.info("run_infer_stage: group_index=%d, workdir=%s", group_index, workdir)
+
         # 1. 加载配置
         config = load_global_config_section(Path(global_config), "1infer")
         workdir = Path(workdir) if workdir else Path.cwd()
@@ -147,7 +156,13 @@ class WorkflowExecutor:
         )
 
         # 3. 执行推理
-        return InferCommandExecutor.execute(group_index, ctx)
+        try:
+            result = InferCommandExecutor.execute(group_index, ctx)
+            logger.info("run_infer_stage 完成: %s", result)
+            return result
+        except Exception as e:
+            logger.error("run_infer_stage 失败: %s", e)
+            raise
 
     # ==================== Calc 阶段 ====================
 
@@ -172,6 +187,9 @@ class WorkflowExecutor:
         Returns:
             {'success': N, 'failed': M}
         """
+        logger = get_logger("executor.calc")
+        logger.info("run_calc_stage: start=%d, end=%d, workdir=%s", start, end, workdir)
+
         # 1. 加载配置
         config = load_global_config_section(Path(global_config), "2calc")
         workdir = Path(workdir) if workdir else Path.cwd()
@@ -193,6 +211,7 @@ class WorkflowExecutor:
 
         # 3. 读取数据
         records = WorkflowExecutor._read_calc_records(ctx, start, end, stru_log)
+        logger.info("读取到 %d 条记录", len(records))
 
         # 4. 并行执行（单进程）
         with multiprocessing.Pool(processes=1) as pool:
@@ -200,7 +219,9 @@ class WorkflowExecutor:
             results = pool.map(execute_func, records)
 
         # 5. 统计结果
-        return WorkflowExecutor._summarize_results(results)
+        stats = WorkflowExecutor._summarize_results(results)
+        logger.info("run_calc_stage 完成: %s", stats)
+        return stats
 
     # ==================== 辅助函数 ====================
 

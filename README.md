@@ -51,6 +51,33 @@ deeplazy validate --config /path/to/global_config.yaml
 
 See `examples/demo-workflow/global_config.yaml` for an example configuration file.
 
+## Changelog
+
+### v2.1.0 (2026-03-11)
+
+**Executor improvements:**
+- Added structured logging for all workflow stages (OLP, Infer, Calc)
+- Added exception handling with error logging in `run_infer_stage`
+
+**Commands improvements:**
+- Added `_cleanup_directory()` and `_ensure_symlink()` helper functions
+- Changed `label` in OLP stage to use full POSCAR path (for consistent folders.dat output)
+- Refactored `_link_overlap_files()` to link entire directories instead of single files
+- Added comprehensive logging throughout Infer stage execution
+- Added try/except with error file writing in `InferCommandExecutor.execute`
+- Added logger parameter to all Infer helper methods
+- Improved error reporting with detailed failure messages
+
+**Logging format:**
+- Consistent logger naming: `restart_workflow.3steps.executor.{stage}` and `restart_workflow.3steps.infer.group{N}`
+
+### v2.0.0
+
+- Initial release with modular architecture
+- Three-stage workflow: OLP → Infer → Calc
+- CLI interface with argparse
+- SLURM job script generation
+
 ## Development
 
 ```bash

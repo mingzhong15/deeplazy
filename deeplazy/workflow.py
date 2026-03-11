@@ -54,6 +54,15 @@ class WorkflowManager:
             raise FileNotFoundError(f"配置文件不存在: {self.config_path}")
         return load_yaml_config(self.config_path) or {}
 
+    @staticmethod
+    def _normalize_python_path(path: str) -> str:
+        """规范化 Python 路径，自动补全 python 解释器名"""
+        if not path:
+            return "python"
+        if path.endswith("/"):
+            return path + "python"
+        return path
+
     def _init_state(self) -> Dict[str, Any]:
         """初始化状态"""
         return {
@@ -301,9 +310,13 @@ class WorkflowManager:
         software_config = self.config.get("software", {})
 
         if stage_name == "1infer":
-            python_path = software_config.get("python_deeph", "python")
+            python_path = self._normalize_python_path(
+                software_config.get("python_deeph", "python")
+            )
         else:
-            python_path = software_config.get("python", "python")
+            python_path = self._normalize_python_path(
+                software_config.get("python", "python")
+            )
 
         if stage_name == "1infer":
             self._prepare_infer_groups(stage_dir)
@@ -313,7 +326,8 @@ class WorkflowManager:
             stage_dir=stage_dir,
             stage_config=stage_config,
             python_path=python_path,
-            project_root=str(self.workdir),
+            config_path=str(self.config_path),
+            software_config=software_config,
         )
 
         result = subprocess.run(
@@ -482,6 +496,15 @@ class WorkflowManager:
                 if status == "pending":
                     blocked_count = 0
                     retry_count = state["stages"][current_stage].get("retry_count", 0)
+
+                    # 检测是否是重试（之前已提交过作业）
+                    previous_job_id = state["stages"][current_stage].get("job_id")
+                    if previous_job_id:
+                        retry_count += 1
+                        logger.warning(
+                            f"[{current_stage}] 检测到重试 (之前作业: {previous_job_id}, 当前重试次数: {retry_count}/{MAX_RETRY})"
+                        )
+                        state["stages"][current_stage]["retry_count"] = retry_count
 
                     if retry_count >= MAX_RETRY:
                         logger.error(f"[{current_stage}] 已达到最大重试次数")

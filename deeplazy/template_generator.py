@@ -24,17 +24,30 @@ def _format_env_vars(env_vars: Dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def _format_sys_path(software_config: Dict[str, Any]) -> str:
+    """生成 sys.path.append 代码"""
+    deeplazy_path = software_config.get("deeplazy_path", "")
+    if not deeplazy_path:
+        return ""
+    return f"sys.path.append('{deeplazy_path}')"
+
+
 def generate_embedded_olp_script(
-    python_path: str, project_root: str, batch_size: int, slurm_config: Dict[str, Any]
+    python_path: str,
+    config_path: str,
+    batch_size: int,
+    slurm_config: Dict[str, Any],
+    software_config: Dict[str, Any],
 ) -> str:
     """
     生成内嵌Python代码的OLP SLURM脚本
 
     Args:
         python_path: Python解释器路径
-        project_root: 项目根目录路径
+        config_path: 全局配置文件路径
         batch_size: 批处理大小
         slurm_config: SLURM配置
+        software_config: 软件配置
 
     Returns:
         SLURM脚本内容
@@ -50,6 +63,7 @@ def generate_embedded_olp_script(
 
     modules_section = _format_modules(modules)
     env_vars_section = _format_env_vars(env_vars)
+    sys_path_line = _format_sys_path(software_config)
 
     return f"""#!/bin/bash
 #SBATCH --no-requeue
@@ -74,17 +88,16 @@ echo "[OLP] Array ID: $SLURM_ARRAY_TASK_ID"
 echo "[OLP] Processing: $START to $END"
 
 {python_path} - <<'PYTHON_EOF'
-import sys
 import os
-from pathlib import Path
+import sys
 
-sys.path.insert(0, '{project_root}')
+{sys_path_line}
 
 from deeplazy.executor import WorkflowExecutor
 
 try:
     result = WorkflowExecutor.run_olp_stage(
-        global_config='{project_root}/global_config.yaml',
+        global_config='{config_path}',
         start=int(os.environ['START']),
         end=int(os.environ['END'])
     )
@@ -101,15 +114,19 @@ echo "[OLP] Finished at: $(date)"
 
 
 def generate_embedded_infer_script(
-    python_path: str, project_root: str, slurm_config: Dict[str, Any]
+    python_path: str,
+    config_path: str,
+    slurm_config: Dict[str, Any],
+    software_config: Dict[str, Any],
 ) -> str:
     """
     生成内嵌Python代码的Infer SLURM脚本
 
     Args:
         python_path: Python解释器路径
-        project_root: 项目根目录路径
+        config_path: 全局配置文件路径
         slurm_config: SLURM配置
+        software_config: 软件配置
 
     Returns:
         SLURM脚本内容
@@ -126,6 +143,7 @@ def generate_embedded_infer_script(
 
     modules_section = _format_modules(modules)
     env_vars_section = _format_env_vars(env_vars)
+    sys_path_line = _format_sys_path(software_config)
 
     return f"""#!/bin/bash
 #SBATCH --no-requeue
@@ -149,17 +167,16 @@ echo "[Infer] Array ID: $SLURM_ARRAY_TASK_ID"
 echo "[Infer] Group Index: $GROUP_INDEX"
 
 {python_path} - <<'PYTHON_EOF'
-import sys
 import os
-from pathlib import Path
+import sys
 
-sys.path.insert(0, '{project_root}')
+{sys_path_line}
 
 from deeplazy.executor import WorkflowExecutor
 
 try:
     result = WorkflowExecutor.run_infer_stage(
-        global_config='{project_root}/global_config.yaml',
+        global_config='{config_path}',
         group_index=int(os.environ['GROUP_INDEX'])
     )
     print(f"[Infer] 完成: {{result}}")
@@ -175,16 +192,21 @@ echo "[Infer] Finished at: $(date)"
 
 
 def generate_embedded_calc_script(
-    python_path: str, project_root: str, batch_size: int, slurm_config: Dict[str, Any]
+    python_path: str,
+    config_path: str,
+    batch_size: int,
+    slurm_config: Dict[str, Any],
+    software_config: Dict[str, Any],
 ) -> str:
     """
     生成内嵌Python代码的Calc SLURM脚本
 
     Args:
         python_path: Python解释器路径
-        project_root: 项目根目录路径
+        config_path: 全局配置文件路径
         batch_size: 批处理大小
         slurm_config: SLURM配置
+        software_config: 软件配置
 
     Returns:
         SLURM脚本内容
@@ -200,6 +222,7 @@ def generate_embedded_calc_script(
 
     modules_section = _format_modules(modules)
     env_vars_section = _format_env_vars(env_vars)
+    sys_path_line = _format_sys_path(software_config)
 
     return f"""#!/bin/bash
 #SBATCH --no-requeue
@@ -224,17 +247,16 @@ echo "[Calc] Array ID: $SLURM_ARRAY_TASK_ID"
 echo "[Calc] Processing: $START to $END"
 
 {python_path} - <<'PYTHON_EOF'
-import sys
 import os
-from pathlib import Path
+import sys
 
-sys.path.insert(0, '{project_root}')
+{sys_path_line}
 
 from deeplazy.executor import WorkflowExecutor
 
 try:
     result = WorkflowExecutor.run_calc_stage(
-        global_config='{project_root}/global_config.yaml',
+        global_config='{config_path}',
         start=int(os.environ['START']),
         end=int(os.environ['END'])
     )
@@ -255,7 +277,8 @@ def generate_submit_script(
     stage_dir: Path,
     stage_config: Dict[str, Any],
     python_path: str,
-    project_root: str,
+    config_path: str,
+    software_config: Dict[str, Any],
 ) -> Path:
     """
     生成 SLURM 提交脚本（内嵌Python代码）
@@ -265,7 +288,8 @@ def generate_submit_script(
         stage_dir: 阶段目录路径
         stage_config: 该阶段的配置字典
         python_path: Python 解释器路径
-        project_root: 项目根目录路径
+        config_path: 全局配置文件路径
+        software_config: 软件配置
 
     Returns:
         生成的脚本文件路径
@@ -275,16 +299,16 @@ def generate_submit_script(
     if stage_name == "0olp":
         batch_size = slurm_config.get("batch_size", 200)
         content = generate_embedded_olp_script(
-            python_path, project_root, batch_size, slurm_config
+            python_path, config_path, batch_size, slurm_config, software_config
         )
     elif stage_name == "1infer":
         content = generate_embedded_infer_script(
-            python_path, project_root, slurm_config
+            python_path, config_path, slurm_config, software_config
         )
     elif stage_name == "2calc":
         batch_size = slurm_config.get("batch_size", 40)
         content = generate_embedded_calc_script(
-            python_path, project_root, batch_size, slurm_config
+            python_path, config_path, batch_size, slurm_config, software_config
         )
     else:
         raise ValueError(f"未知阶段: {stage_name}")

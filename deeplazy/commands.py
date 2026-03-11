@@ -17,6 +17,7 @@ from .utils import (
     write_text,
     run_subprocess,
     generate_random_paths,
+    get_logger,
 )
 from .constants import (
     OVERLAP_FILENAME,
@@ -43,6 +44,30 @@ if TYPE_CHECKING:
     from .contexts import OLPContext, InferContext, CalcContext
 
 
+def _cleanup_directory(path: Path) -> None:
+    """清理目录（包括符号链接）"""
+    if path.exists() or path.is_symlink():
+        if path.is_dir() and not path.is_symlink():
+            shutil.rmtree(path)
+        else:
+            path.unlink()
+
+
+def _ensure_symlink(source: Path, target: Path) -> None:
+    """确保创建符号链接（源可以是文件或目录）"""
+    if not source.exists():
+        raise FileNotFoundError(f"源路径不存在: {source}")
+
+    ensure_directory(target.parent)
+    if target.exists() or target.is_symlink():
+        if target.is_dir() and not target.is_symlink():
+            shutil.rmtree(target)
+        else:
+            target.unlink()
+
+    os.symlink(source, target)
+
+
 class OLPCommandExecutor:
     """OLP阶段命令执行器"""
 
@@ -62,7 +87,7 @@ class OLPCommandExecutor:
         if ctx.node_error_flag and ctx.node_error_flag.exists():
             return ("skipped", Path(poscar_path).name)
 
-        label = Path(poscar_path).name
+        label = poscar_path
         write_text(ctx.progress_file, f"{label} start\n", append=True)
 
         # 生成随机路径
@@ -183,55 +208,92 @@ class InferCommandExecutor:
             TransformError: 格式转换失败
             InferError: 推理失败
         """
+        logger = get_logger(f"infer.group{group_index}")
+
         # 加载组信息
         group = InferCommandExecutor._load_group_info(ctx.group_info_file, group_index)
         records = group["records"]
+
+        logger.info(
+            "处理组 %s (index=%s, size=%s)",
+            group["group_id"],
+            group["index"],
+            group["size"],
+        )
 
         # 准备目录
         input_dir = ctx.result_dir / INPUTS_SUBDIR / group["group_id"]
         output_dir = ctx.result_dir / OUTPUTS_SUBDIR / group["group_id"]
         config_dir = ctx.result_dir / CONFIG_SUBDIR
 
+        # 清理并创建目录
+        _cleanup_directory(input_dir)
         ensure_directory(input_dir / GETH_SUBDIR)
         ensure_directory(input_dir / DFT_SUBDIR)
+        _cleanup_directory(output_dir)
         ensure_directory(output_dir)
         ensure_directory(config_dir)
 
-        # 第一步：Link OLP + Transform
-        InferCommandExecutor._link_overlap_files(records, input_dir / GETH_SUBDIR, ctx)
-        InferCommandExecutor._run_transform(
-            ctx.config["commands"]["transform"],
-            input_dir / GETH_SUBDIR,
-            input_dir / DFT_SUBDIR,
-            ctx.parallel,
-        )
+        try:
+            # 第一步：Link OLP + Transform
+            logger.info("开始 link olp 阶段")
+            InferCommandExecutor._link_overlap_files(
+                records, input_dir / GETH_SUBDIR, ctx, logger
+            )
 
-        # 第二步：Infer
-        config_path = InferCommandExecutor._generate_infer_config(
-            ctx, group["group_id"], input_dir, output_dir
-        )
-        InferCommandExecutor._run_infer(ctx.config["commands"]["infer"], config_path)
+            logger.info("开始 batch transform 阶段")
+            InferCommandExecutor._run_transform(
+                ctx.config["commands"]["transform"],
+                input_dir / GETH_SUBDIR,
+                input_dir / DFT_SUBDIR,
+                ctx.parallel,
+                logger,
+            )
 
-        # 第三步：Link Infer + Reverse Transform + Hamlog
-        infer_output_dir = InferCommandExecutor._find_latest_output(output_dir)
-        InferCommandExecutor._link_infer_outputs(
-            records,
-            infer_output_dir / DFT_SUBDIR,
-            output_dir / GETH_NEW_SUBDIR,
-            input_dir / DFT_SUBDIR,
-        )
-        InferCommandExecutor._run_transform(
-            ctx.config["commands"]["transform_reverse"],
-            output_dir / GETH_NEW_SUBDIR,
-            ctx.result_dir / GETH_SUBDIR,
-            ctx.parallel,
-            reverse=True,
-        )
-        InferCommandExecutor._append_hamlog(
-            records, ctx.result_dir / GETH_SUBDIR, ctx.hamlog_file
-        )
+            # 第二步：Infer
+            config_path = InferCommandExecutor._generate_infer_config(
+                ctx, group["group_id"], input_dir, output_dir, logger
+            )
+            logger.info("开始 infer 阶段")
+            InferCommandExecutor._run_infer(
+                ctx.config["commands"]["infer"], config_path, logger
+            )
 
-        return {"group_id": group["group_id"], "status": "success"}
+            # 第三步：Link Infer + Reverse Transform + Hamlog
+            infer_output_dir = InferCommandExecutor._find_latest_output(
+                output_dir, logger
+            )
+            logger.info("开始 link infer outputs 阶段")
+            InferCommandExecutor._link_infer_outputs(
+                records,
+                infer_output_dir / DFT_SUBDIR,
+                output_dir / GETH_NEW_SUBDIR,
+                input_dir / DFT_SUBDIR,
+                logger,
+            )
+            logger.info("开始 batch transform reverse 阶段")
+            InferCommandExecutor._run_transform(
+                ctx.config["commands"]["transform_reverse"],
+                output_dir / GETH_NEW_SUBDIR,
+                ctx.result_dir / GETH_SUBDIR,
+                ctx.parallel,
+                logger,
+                reverse=True,
+            )
+            InferCommandExecutor._append_hamlog(
+                records, ctx.result_dir / GETH_SUBDIR, ctx.hamlog_file, logger
+            )
+
+            logger.info("组 %s 处理完成", group["group_id"])
+            return {"group_id": group["group_id"], "status": "success"}
+
+        except Exception as e:
+            logger.error("组 %s 处理失败: %s", group["group_id"], str(e))
+            # 写入错误文件
+            ensure_directory(ctx.error_file.parent)
+            error_msg = f"{group['index']} {group['group_id']} {str(e)}"
+            write_text(ctx.error_file, f"{error_msg}\n", append=True)
+            raise
 
     @staticmethod
     def _load_group_info(group_info_file: Path, group_index: int) -> Dict:
@@ -246,40 +308,52 @@ class InferCommandExecutor:
         )
 
     @staticmethod
-    def _link_overlap_files(records: List[Dict], target_root: Path, ctx: InferContext):
-        """链接overlap文件"""
+    def _link_overlap_files(
+        records: List[Dict], target_root: Path, ctx: InferContext, logger
+    ):
+        """链接overlap文件（链接整个目录，类似 v2.3）"""
         ensure_directory(target_root)
 
+        logger.info("链接 %d 个 overlap 目录到 %s", len(records), target_root)
+
         failures = []
+        success_count = 0
         for record in records:
             short_path = Path(record["short_path"])
-            target_dir = target_root / short_path
-            ensure_directory(target_dir)
-
-            # 链接overlap文件
-            source_file = Path(record["geth_path"]) / OVERLAP_FILENAME
-            target_file = target_dir / OVERLAP_FILENAME
+            source_dir = Path(record["geth_path"])
+            target = target_root / short_path
 
             try:
-                if source_file.exists():
-                    if target_file.exists() or target_file.is_symlink():
-                        target_file.unlink()
-                    os.symlink(source_file, target_file)
+                if source_dir.exists():
+                    # 链接整个目录
+                    _ensure_symlink(source_dir, target)
+                    success_count += 1
                 else:
-                    failures.append(str(source_file))
+                    failures.append(f"源目录不存在: {source_dir}")
+                    logger.warning("源目录不存在: %s", source_dir)
             except Exception as e:
-                failures.append(f"{source_file}: {e}")
+                failures.append(f"{source_dir}: {e}")
+                logger.error("链接失败: %s -> %s", source_dir, e)
+
+        logger.info("成功链接 %d/%d 个目录", success_count, len(records))
 
         # 验证
+        logger.info("验证链接文件完整性...")
+        validate_failures = []
         for record in records:
             short_path = Path(record["short_path"])
             target_file = target_root / short_path / OVERLAP_FILENAME
             ok, message = validate_h5(target_file)
             if not ok:
-                failures.append(f"validation failed: {target_file}")
+                validate_failures.append(f"{target_file}: {message}")
+                logger.error("验证失败: %s -> %s", target_file, message)
 
-        if failures:
-            raise TransformError(f"Link overlap失败: {failures[:5]}")
+        all_failures = failures + validate_failures
+        if all_failures:
+            logger.error("Link overlap 失败，共 %d 个错误", len(all_failures))
+            raise TransformError(f"Link overlap失败: {all_failures[:5]}")
+
+        logger.info("Link overlap 完成")
 
     @staticmethod
     def _run_transform(
@@ -287,21 +361,25 @@ class InferCommandExecutor:
         input_dir: Path,
         output_dir: Path,
         parallel: int,
+        logger,
         reverse: bool = False,
     ):
         """运行格式转换"""
         ensure_directory(output_dir)
+        stage_name = "batch_transform_reverse" if reverse else "batch_transform"
         command = command_template.format(
             input_dir=input_dir, output_dir=output_dir, parallel=parallel
         )
+        logger.info("[%s] 执行命令: %s", stage_name, command)
         run_subprocess(command, shell=True)
 
     @staticmethod
     def _generate_infer_config(
-        ctx: InferContext, group_id: str, input_dir: Path, output_dir: Path
+        ctx: InferContext, group_id: str, input_dir: Path, output_dir: Path, logger
     ) -> Path:
         """生成推理配置文件"""
-        template_path = ctx.workdir / INFER_TEMPLATE
+        package_dir = Path(__file__).parent
+        template_path = package_dir / INFER_TEMPLATE
         if not template_path.exists():
             raise InferError(f"模板文件不存在: {template_path}")
 
@@ -315,16 +393,18 @@ class InferCommandExecutor:
 
         config_path = ctx.result_dir / CONFIG_SUBDIR / f"infer_{group_id}.toml"
         write_text(config_path, config_content)
+        logger.info("生成推理配置: %s", config_path)
         return config_path
 
     @staticmethod
-    def _run_infer(command_template: str, config_path: Path):
+    def _run_infer(command_template: str, config_path: Path, logger):
         """运行推理"""
         command = command_template.format(config_path=config_path)
+        logger.info("[infer] 执行命令: %s", command)
         run_subprocess(command, shell=True)
 
     @staticmethod
-    def _find_latest_output(output_root: Path) -> Path:
+    def _find_latest_output(output_root: Path, logger) -> Path:
         """找到最新的推理输出目录"""
         if not output_root.exists():
             raise InferError(f"推理输出目录不存在: {output_root}")
@@ -334,6 +414,7 @@ class InferCommandExecutor:
             raise InferError(f"推理输出目录为空: {output_root}")
 
         latest = max(subdirs, key=lambda item: item.stat().st_mtime)
+        logger.info("检测到最新推理结果目录: %s", latest)
         return latest
 
     @staticmethod
@@ -342,9 +423,11 @@ class InferCommandExecutor:
         source_dft_dir: Path,
         target_root: Path,
         input_dft_dir: Path,
+        logger,
     ):
         """链接推理输出"""
         ensure_directory(target_root)
+        logger.info("链接推理输出到 %s", target_root)
 
         failures = []
         for record in records:
@@ -363,9 +446,11 @@ class InferCommandExecutor:
                         target_ham.unlink()
                     os.symlink(source_ham, target_ham)
                 else:
-                    failures.append(str(source_ham))
+                    failures.append(f"源文件不存在: {source_ham}")
+                    logger.warning("Hamiltonian 源文件不存在: %s", source_ham)
             except Exception as e:
                 failures.append(f"{source_ham}: {e}")
+                logger.error("链接失败: %s -> %s", source_ham, e)
 
             # 链接辅助文件
             for filename in AUX_FILENAMES:
@@ -377,13 +462,19 @@ class InferCommandExecutor:
                             target_file.unlink()
                         os.symlink(source_file, target_file)
                 except Exception as e:
-                    failures.append(f"{source_file}: {e}")
+                    logger.warning("链接辅助文件失败: %s -> %s", source_file, e)
 
         if failures:
-            raise InferError(f"Link infer outputs失败: {failures[:5]}")
+            for message in failures:
+                logger.error("推理结果链接失败: %s", message)
+            raise InferError(f"推理结果链接失败: {failures[:5]}")
+
+        logger.info("链接推理输出完成")
 
     @staticmethod
-    def _append_hamlog(records: List[Dict], reverse_root: Path, hamlog_file: Path):
+    def _append_hamlog(
+        records: List[Dict], reverse_root: Path, hamlog_file: Path, logger
+    ):
         """追加到hamlog"""
         ensure_directory(hamlog_file.parent)
 
@@ -391,6 +482,8 @@ class InferCommandExecutor:
             target_path = reverse_root / record["short_path"]
             line = f"{record['label']} {target_path}\n"
             write_text(hamlog_file, line, append=True)
+
+        logger.info("已写入 hamlog %d 条记录 -> %s", len(records), hamlog_file)
 
 
 class CalcCommandExecutor:

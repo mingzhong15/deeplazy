@@ -158,36 +158,60 @@ def main():
     )
 
     parser_run = subparsers.add_parser("run", help="运行工作流")
-    parser_run.add_argument("--config", required=True, help="配置文件路径")
+    parser_run.add_argument(
+        "--config",
+        default="global_config.yaml",
+        help="配置文件路径 (默认: ./global_config.yaml)",
+    )
     parser_run.add_argument("--workdir", help="工作目录 (默认为配置文件所在目录)")
     parser_run.add_argument("--daemon", action="store_true", help="后台运行")
     parser_run.set_defaults(func=cmd_run)
 
     parser_status = subparsers.add_parser("status", help="查看工作流状态")
-    parser_status.add_argument("--config", required=True, help="配置文件路径")
+    parser_status.add_argument(
+        "--config",
+        default="global_config.yaml",
+        help="配置文件路径 (默认: ./global_config.yaml)",
+    )
     parser_status.add_argument("--workdir", help="工作目录")
     parser_status.set_defaults(func=cmd_status)
 
     parser_stop = subparsers.add_parser("stop", help="停止工作流")
-    parser_stop.add_argument("--config", required=True, help="配置文件路径")
+    parser_stop.add_argument(
+        "--config",
+        default="global_config.yaml",
+        help="配置文件路径 (默认: ./global_config.yaml)",
+    )
     parser_stop.add_argument("--workdir", help="工作目录")
     parser_stop.set_defaults(func=cmd_stop)
 
     parser_restart = subparsers.add_parser("restart", help="重新开始工作流")
-    parser_restart.add_argument("--config", required=True, help="配置文件路径")
+    parser_restart.add_argument(
+        "--config",
+        default="global_config.yaml",
+        help="配置文件路径 (默认: ./global_config.yaml)",
+    )
     parser_restart.add_argument("--workdir", help="工作目录")
     parser_restart.add_argument("--daemon", action="store_true", help="后台运行")
     parser_restart.set_defaults(func=cmd_restart)
 
     parser_olp = subparsers.add_parser("olp", help="执行 OLP 阶段")
-    parser_olp.add_argument("--config", required=True, help="配置文件路径")
+    parser_olp.add_argument(
+        "--config",
+        default="global_config.yaml",
+        help="配置文件路径 (默认: ./global_config.yaml)",
+    )
     parser_olp.add_argument("--workdir", help="工作目录")
     parser_olp.add_argument("--start", type=int, default=0, help="起始索引")
     parser_olp.add_argument("--end", type=int, default=10, help="结束索引")
     parser_olp.set_defaults(func=cmd_olp)
 
     parser_infer = subparsers.add_parser("infer", help="执行 Infer 阶段")
-    parser_infer.add_argument("--config", required=True, help="配置文件路径")
+    parser_infer.add_argument(
+        "--config",
+        default="global_config.yaml",
+        help="配置文件路径 (默认: ./global_config.yaml)",
+    )
     parser_infer.add_argument("--workdir", help="工作目录")
     parser_infer.add_argument(
         "--group", type=int, required=True, help="组索引 (1-based)"
@@ -195,14 +219,22 @@ def main():
     parser_infer.set_defaults(func=cmd_infer)
 
     parser_calc = subparsers.add_parser("calc", help="执行 Calc 阶段")
-    parser_calc.add_argument("--config", required=True, help="配置文件路径")
+    parser_calc.add_argument(
+        "--config",
+        default="global_config.yaml",
+        help="配置文件路径 (默认: ./global_config.yaml)",
+    )
     parser_calc.add_argument("--workdir", help="工作目录")
     parser_calc.add_argument("--start", type=int, default=0, help="起始索引")
     parser_calc.add_argument("--end", type=int, default=10, help="结束索引")
     parser_calc.set_defaults(func=cmd_calc)
 
     parser_validate = subparsers.add_parser("validate", help="验证配置文件")
-    parser_validate.add_argument("--config", required=True, help="配置文件路径")
+    parser_validate.add_argument(
+        "--config",
+        default="global_config.yaml",
+        help="配置文件路径 (默认: ./global_config.yaml)",
+    )
     parser_validate.set_defaults(func=cmd_validate)
 
     parser_version = subparsers.add_parser("version", help="显示版本")
