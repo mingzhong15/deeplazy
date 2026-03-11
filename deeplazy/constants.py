@@ -53,3 +53,17 @@ PATH_0OLP_FOLDERS = "../0olp/folders.dat"
 # 1infer -> 2calc
 PATH_1INFER_HAMLOG = "../1infer/hamlog.dat"
 PATH_RESULT_GETH = "../result-infer/geth"
+
+# ============================================
+# Monitor 配置
+# ============================================
+from deeplazy.exceptions import FailureType
+
+DEFAULT_MAX_RETRIES = {
+    FailureType.SUBMIT_FAILED: 0,
+    FailureType.SLURM_FAILED: 3,
+    FailureType.NODE_ERROR: 3,
+    FailureType.CALC_ERROR: -1,
+}
+
+MONITOR_STATE_FILE = "monitor_state.json"
