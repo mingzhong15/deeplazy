@@ -78,6 +78,7 @@ dlazy batch-status --config global_config.yaml
 workflow_root/
 ├── poscar_list.txt           # Input: POSCAR paths
 ├── batch_state.json          # State file for resume
+├── monitor_state.json        # Monitor state for error tracking
 ├── batch.00000/              # First batch
 │   ├── olp_tasks.jsonl       # OLP input tasks
 │   ├── infer_tasks.jsonl     # Infer input tasks (OLP output)
@@ -97,31 +98,46 @@ See `examples/demo-workflow/global_config.yaml` for an example configuration fil
 
 ## Changelog
 
+### v2.3.0 (2026-03-11)
+
+**Monitor Integration:**
+- Integrated `JobMonitor` into `BatchWorkflowManager` for error tracking
+- Added `FailureType` enum and `AbortException` for error classification
+- Added monitor state persistence (`monitor_state.json`)
+- Added automatic abort on max retries exceeded
+
+**Package Rename:**
+- Renamed package from `deeplazy` to `dlazy` for shorter CLI commands
+- CLI command changed: `deeplazy` → `dlazy`
+
+**New Exports:**
+- `BatchContext`, `FailureType`, `AbortException` added to `__init__.py`
+
 ### v2.2.0 (2026-03-11)
 
-<<<<<<< HEAD
 **Package Rename:**
 - Renamed package from `deeplazy` to `dlazy` for shorter CLI commands
 - CLI command changed: `deeplazy` → `dlazy` (e.g., `dlazy run`, `dlazy olp`)
 - Updated all imports: `from deeplazy` → `from dlazy`
 - Updated template generator: `deeplazy_path` → `dlazy_path`
-=======
+
 **Batch Workflow:**
 - Added `BatchWorkflowManager` for large-scale structure calculations
 - Added deterministic directory structure: `batch.NNNNN/task.NNNNNN/{olp,infer,scf}/`
 - Added JSON Lines record format for task tracking
-- Added `deeplazy batch` and `deeplazy batch-status` CLI commands
+- Added `dlazy batch` and `dlazy batch-status` CLI commands
 - Added resume support via `--resume` flag
 
 **New Files:**
 - `record_utils.py` - Unified record format (OlpTask, InferTask, CalcTask, ErrorTask)
 - `batch_workflow.py` - BatchWorkflowManager implementation
+- `monitor.py` - JobMonitor for error tracking and retry logic
 
 **New Constants:**
 - `OLP_TASKS_FILE`, `INFER_TASKS_FILE`, `CALC_TASKS_FILE`, `ERROR_TASKS_FILE`
 - `BATCH_STATE_FILE`, `BATCH_DIR_PREFIX`, `TASK_DIR_PREFIX`
 - `OLP_SUBDIR`, `INFER_SUBDIR`, `SCF_SUBDIR`
->>>>>>> docs: add batch workflow documentation and v2.2.0 changelog
+- `DEFAULT_MAX_RETRIES`, `MONITOR_STATE_FILE`
 
 ### v2.1.0 (2026-03-11)
 

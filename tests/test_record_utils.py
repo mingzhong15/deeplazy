@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from deeplazy.record_utils import (
+from dlazy.record_utils import (
     append_error_task,
     CalcTask,
     ErrorTask,

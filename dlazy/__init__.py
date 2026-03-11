@@ -1,7 +1,7 @@
 """工作流核心库"""
 
 from .executor import WorkflowExecutor
-from .contexts import OLPContext, InferContext, CalcContext
+from .contexts import OLPContext, InferContext, CalcContext, BatchContext
 from .exceptions import (
     WorkflowError,
     ConfigError,
@@ -11,14 +11,17 @@ from .exceptions import (
     InferError,
     GroupNotFoundError,
     HamiltonianNotFoundError,
+    FailureType,
+    AbortException,
 )
 
-__version__ = "2.2.0"
+__version__ = "2.3.0"
 __all__ = [
     "WorkflowExecutor",
     "OLPContext",
     "InferContext",
     "CalcContext",
+    "BatchContext",
     "WorkflowError",
     "ConfigError",
     "NodeError",
@@ -27,4 +30,6 @@ __all__ = [
     "InferError",
     "GroupNotFoundError",
     "HamiltonianNotFoundError",
+    "FailureType",
+    "AbortException",
 ]

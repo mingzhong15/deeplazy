@@ -4,19 +4,23 @@ from __future__ import annotations
 
 import json
 import multiprocessing
-from dataclasses import asdict
+from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from .commands import CalcCommandExecutor, InferCommandExecutor, OLPCommandExecutor
 from .constants import (
     BATCH_STATE_FILE,
     CALC_TASKS_FILE,
+    DEFAULT_MAX_RETRIES,
     ERROR_TASKS_FILE,
     INFER_TASKS_FILE,
+    MONITOR_STATE_FILE,
     OLP_TASKS_FILE,
 )
 from .contexts import BatchContext
+from .exceptions import AbortException, FailureType
+from .monitor import JobMonitor, MonitorConfig, TaskError
 from .record_utils import (
     CalcTask,
     ErrorTask,
@@ -47,6 +51,33 @@ class BatchWorkflowManager:
         self.ctx = ctx
         self.logger = get_logger("batch_workflow")
         self.state: Dict[str, Any] = self._load_or_init_state()
+        self.monitor: Optional[JobMonitor] = None
+        self._init_monitor()
+
+    def _init_monitor(self) -> None:
+        """Initialize monitor for error tracking."""
+        if self.ctx.monitor is not None:
+            self.monitor = self.ctx.monitor
+            return
+
+        monitor_config = MonitorConfig(max_retries=DEFAULT_MAX_RETRIES)
+        self.monitor = JobMonitor(monitor_config)
+
+        monitor_state_file = self.ctx.workflow_root / MONITOR_STATE_FILE
+        if monitor_state_file.exists():
+            with open(monitor_state_file, "r", encoding="utf-8") as f:
+                monitor_state = json.load(f)
+                self.monitor.restore_from_state(monitor_state)
+                self.logger.info("Restored monitor state from %s", monitor_state_file)
+
+    def _save_monitor_state(self) -> None:
+        """Save monitor state to file."""
+        if self.monitor is None:
+            return
+        monitor_state_file = self.ctx.workflow_root / MONITOR_STATE_FILE
+        ensure_directory(monitor_state_file.parent)
+        with open(monitor_state_file, "w", encoding="utf-8") as f:
+            json.dump(self.monitor.save_state(), f, indent=2)
 
     def _load_or_init_state(self) -> Dict[str, Any]:
         """Load existing state or initialize new state."""
@@ -104,44 +135,77 @@ class BatchWorkflowManager:
         infer_config = load_global_config_section(self.ctx.config_path, "1infer")
         calc_config = load_global_config_section(self.ctx.config_path, "2calc")
 
-        while True:
-            batch_index = self.state["current_batch"]
-            batch_dir = get_batch_dir(self.ctx.workflow_root, batch_index)
-            ensure_directory(batch_dir)
+        try:
+            while True:
+                batch_index = self.state["current_batch"]
+                batch_dir = get_batch_dir(self.ctx.workflow_root, batch_index)
+                ensure_directory(batch_dir)
 
-            self.logger.info("Processing batch %d", batch_index)
+                self.logger.info("Processing batch %d", batch_index)
 
-            if not self.state.get("olp_completed"):
-                self._run_olp_batch(batch_dir, olp_config)
-                self.state["olp_completed"] = True
+                if not self.state.get("olp_completed"):
+                    self._run_olp_batch(batch_dir, olp_config)
+                    self.state["olp_completed"] = True
+                    self._save_state()
+                    self._save_monitor_state()
+
+                if self.monitor and self.monitor.should_abort():
+                    raise AbortException(
+                        self.monitor.state.abort_reason or "Max retries exceeded"
+                    )
+
+                if not self.state.get("infer_completed"):
+                    self._run_infer_batch(
+                        batch_dir, infer_config, config.get("software", {})
+                    )
+                    self.state["infer_completed"] = True
+                    self._save_state()
+                    self._save_monitor_state()
+
+                if self.monitor and self.monitor.should_abort():
+                    raise AbortException(
+                        self.monitor.state.abort_reason or "Max retries exceeded"
+                    )
+
+                if not self.state.get("calc_completed"):
+                    self._run_calc_batch(batch_dir, calc_config)
+                    self.state["calc_completed"] = True
+                    self._save_state()
+                    self._save_monitor_state()
+
+                if self.monitor and self.monitor.should_abort():
+                    raise AbortException(
+                        self.monitor.state.abort_reason or "Max retries exceeded"
+                    )
+
+                self.state["completed_batches"].append(batch_index)
+                self.state["current_batch"] = batch_index + 1
+                self.state["olp_completed"] = False
+                self.state["infer_completed"] = False
+                self.state["calc_completed"] = False
                 self._save_state()
+                self._save_monitor_state()
 
-            if not self.state.get("infer_completed"):
-                self._run_infer_batch(
-                    batch_dir, infer_config, config.get("software", {})
-                )
-                self.state["infer_completed"] = True
-                self._save_state()
+                olp_tasks_file = self._get_tasks_file("olp", batch_dir)
+                if not olp_tasks_file.exists():
+                    self.logger.info("No more OLP tasks, workflow complete")
+                    break
 
-            if not self.state.get("calc_completed"):
-                self._run_calc_batch(batch_dir, calc_config)
-                self.state["calc_completed"] = True
-                self._save_state()
+            self.logger.info("Batch workflow completed")
+            return {
+                "status": "completed",
+                "batches": len(self.state["completed_batches"]),
+            }
 
-            self.state["completed_batches"].append(batch_index)
-            self.state["current_batch"] = batch_index + 1
-            self.state["olp_completed"] = False
-            self.state["infer_completed"] = False
-            self.state["calc_completed"] = False
+        except AbortException as e:
+            self.logger.error("Batch workflow aborted: %s", e.reason)
             self._save_state()
-
-            olp_tasks_file = self._get_tasks_file("olp", batch_dir)
-            if not olp_tasks_file.exists():
-                self.logger.info("No more OLP tasks, workflow complete")
-                break
-
-        self.logger.info("Batch workflow completed")
-        return {"status": "completed", "batches": len(self.state["completed_batches"])}
+            self._save_monitor_state()
+            return {
+                "status": "aborted",
+                "reason": e.reason,
+                "batches": len(self.state["completed_batches"]),
+            }
 
     def _run_olp_batch(self, batch_dir: Path, config: Dict[str, Any]) -> None:
         """Run OLP stage for current batch."""
@@ -188,6 +252,15 @@ class BatchWorkflowManager:
                 infer_tasks.append(result)
             elif isinstance(result, ErrorTask):
                 append_error_task(error_file, result)
+                if self.monitor:
+                    self.monitor.report_error(
+                        TaskError(
+                            stage="olp",
+                            failure_type=FailureType.CALC_ERROR,
+                            message=result.error,
+                            timestamp=datetime.now(),
+                        )
+                    )
 
         infer_tasks_file = self._get_tasks_file("infer", batch_dir)
         write_infer_tasks(infer_tasks_file, infer_tasks)
@@ -250,6 +323,15 @@ class BatchWorkflowManager:
                 calc_tasks.append(result)
             elif isinstance(result, ErrorTask):
                 append_error_task(error_file, result)
+                if self.monitor:
+                    self.monitor.report_error(
+                        TaskError(
+                            stage="infer",
+                            failure_type=FailureType.CALC_ERROR,
+                            message=result.error,
+                            timestamp=datetime.now(),
+                        )
+                    )
 
         calc_tasks_file = self._get_tasks_file("calc", batch_dir)
         write_calc_tasks(calc_tasks_file, calc_tasks)
@@ -295,16 +377,23 @@ class BatchWorkflowManager:
                 success_count += 1
             else:
                 error_count += 1
-                append_error_task(
-                    error_file,
-                    ErrorTask(
-                        poscar_path=tasks[idx].poscar_path,
-                        stage="calc",
-                        error=status,
-                        batch_id=batch_dir.name.split(".")[-1],
-                        task_id=f"{idx:06d}",
-                    ),
+                error_task = ErrorTask(
+                    poscar_path=tasks[idx].poscar_path,
+                    stage="calc",
+                    error=status,
+                    batch_id=batch_dir.name.split(".")[-1],
+                    task_id=f"{idx:06d}",
                 )
+                append_error_task(error_file, error_task)
+                if self.monitor:
+                    self.monitor.report_error(
+                        TaskError(
+                            stage="calc",
+                            failure_type=FailureType.CALC_ERROR,
+                            message=status,
+                            timestamp=datetime.now(),
+                        )
+                    )
 
         self.logger.info(
             "Calc batch complete: %d success, %d errors", success_count, error_count
