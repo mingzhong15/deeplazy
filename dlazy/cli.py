@@ -143,6 +143,55 @@ def cmd_version(args):
     print(f"dlazy {__version__}")
 
 
+def cmd_batch(args):
+    """运行批量工作流"""
+    from .batch_workflow import BatchWorkflowManager
+    from .contexts import BatchContext
+
+    config_path = Path(args.config).resolve()
+    workdir = Path(args.workdir).resolve() if args.workdir else config_path.parent
+
+    if not config_path.exists():
+        print(f"错误: 配置文件不存在: {config_path}", file=sys.stderr)
+        sys.exit(1)
+
+    ctx = BatchContext(
+        config_path=config_path,
+        workflow_root=workdir,
+        batch_size=args.batch_size,
+        resume=args.resume,
+    )
+
+    manager = BatchWorkflowManager(ctx)
+    result = manager.run()
+    print(f"批量工作流完成: {result}")
+
+
+def cmd_batch_status(args):
+    """查看批量工作流状态"""
+    import json
+    from .constants import BATCH_STATE_FILE
+
+    config_path = Path(args.config).resolve()
+    workdir = Path(args.workdir).resolve() if args.workdir else config_path.parent
+
+    state_file = workdir / BATCH_STATE_FILE
+    if not state_file.exists():
+        print("批量工作流未启动或状态文件不存在")
+        return
+
+    with open(state_file, "r", encoding="utf-8") as f:
+        state = json.load(f)
+
+    print("批量工作流状态:")
+    print(f"  当前批次: {state.get('current_batch', 0)}")
+    print(f"  当前阶段: {state.get('current_stage', 'N/A')}")
+    print(f"  已完成批次: {len(state.get('completed_batches', []))}")
+    print(f"  OLP完成: {state.get('olp_completed', False)}")
+    print(f"  Infer完成: {state.get('infer_completed', False)}")
+    print(f"  Calc完成: {state.get('calc_completed', False)}")
+
+
 def main():
     """CLI 主入口"""
     parser = argparse.ArgumentParser(
@@ -239,6 +288,37 @@ def main():
 
     parser_version = subparsers.add_parser("version", help="显示版本")
     parser_version.set_defaults(func=cmd_version)
+
+    parser_batch = subparsers.add_parser("batch", help="运行批量工作流")
+    parser_batch.add_argument(
+        "--config",
+        default="global_config.yaml",
+        help="配置文件路径 (默认: ./global_config.yaml)",
+    )
+    parser_batch.add_argument("--workdir", help="工作目录 (默认为配置文件所在目录)")
+    parser_batch.add_argument(
+        "--batch-size",
+        type=int,
+        default=100,
+        help="每批次任务数量 (默认: 100)",
+    )
+    parser_batch.add_argument(
+        "--resume",
+        action="store_true",
+        help="从上次中断处继续",
+    )
+    parser_batch.set_defaults(func=cmd_batch)
+
+    parser_batch_status = subparsers.add_parser(
+        "batch-status", help="查看批量工作流状态"
+    )
+    parser_batch_status.add_argument(
+        "--config",
+        default="global_config.yaml",
+        help="配置文件路径 (默认: ./global_config.yaml)",
+    )
+    parser_batch_status.add_argument("--workdir", help="工作目录")
+    parser_batch_status.set_defaults(func=cmd_batch_status)
 
     args = parser.parse_args()
 
