@@ -26,6 +26,7 @@ from .record_utils import (
     ErrorTask,
     InferTask,
     OlpTask,
+    _read_jsonl,
     append_error_task,
     read_calc_tasks,
     read_infer_tasks,
@@ -123,13 +124,26 @@ class BatchWorkflowManager(WorkflowBase):
                 batch_dir = get_batch_dir(self.ctx.workflow_root, batch_index)
                 ensure_directory(batch_dir)
 
+                olp_tasks_file = self._get_tasks_file("olp", batch_dir)
+                if not olp_tasks_file.exists():
+                    tasks = self._prepare_olp_tasks(batch_dir)
+                    if not tasks:
+                        if batch_index == 0:
+                            self.logger.warning("No tasks found, nothing to do")
+                        else:
+                            self.logger.info("All tasks completed")
+                        break
+                    write_olp_tasks(olp_tasks_file, tasks)
+
                 self.logger.info("Processing batch %d", batch_index)
 
                 if not self.state.get("olp_completed"):
                     self._run_olp_batch(batch_dir, olp_config)
                     self.state["olp_completed"] = True
                     self._save_state()
-                    self._save_monitor_state(self.ctx.workflow_root / MONITOR_STATE_FILE)
+                    self._save_monitor_state(
+                        self.ctx.workflow_root / MONITOR_STATE_FILE
+                    )
 
                 if self.monitor and self.monitor.should_abort():
                     raise AbortException(
@@ -142,7 +156,9 @@ class BatchWorkflowManager(WorkflowBase):
                     )
                     self.state["infer_completed"] = True
                     self._save_state()
-                    self._save_monitor_state(self.ctx.workflow_root / MONITOR_STATE_FILE)
+                    self._save_monitor_state(
+                        self.ctx.workflow_root / MONITOR_STATE_FILE
+                    )
 
                 if self.monitor and self.monitor.should_abort():
                     raise AbortException(
@@ -153,7 +169,9 @@ class BatchWorkflowManager(WorkflowBase):
                     self._run_calc_batch(batch_dir, calc_config)
                     self.state["calc_completed"] = True
                     self._save_state()
-                    self._save_monitor_state(self.ctx.workflow_root / MONITOR_STATE_FILE)
+                    self._save_monitor_state(
+                        self.ctx.workflow_root / MONITOR_STATE_FILE
+                    )
 
                 if self.monitor and self.monitor.should_abort():
                     raise AbortException(
@@ -168,14 +186,19 @@ class BatchWorkflowManager(WorkflowBase):
                 self._save_state()
                 self._save_monitor_state(self.ctx.workflow_root / MONITOR_STATE_FILE)
 
-                olp_tasks_file = self._get_tasks_file("olp", batch_dir)
-                if not olp_tasks_file.exists():
-                    self.logger.info("No more OLP tasks, workflow complete")
-                    break
-
             self.logger.info("Batch workflow completed")
             return {
                 "status": "completed",
+                "batches": len(self.state["completed_batches"]),
+            }
+
+        except AbortException as e:
+            self.logger.error("Batch workflow aborted: %s", e.reason)
+            self._save_state()
+            self._save_monitor_state(self.ctx.workflow_root / MONITOR_STATE_FILE)
+            return {
+                "status": "aborted",
+                "reason": e.reason,
                 "batches": len(self.state["completed_batches"]),
             }
 
@@ -213,13 +236,13 @@ class BatchWorkflowManager(WorkflowBase):
             try:
                 return OLPCommandExecutor.execute_batch(
                     task_index=idx,
-                    poscar_path=task.poscar_path,
+                    path=task.path,
                     batch_dir=batch_dir,
                     config=config,
                 )
             except Exception as e:
                 return ErrorTask(
-                    poscar_path=task.poscar_path,
+                    path=task.path,
                     stage="olp",
                     error=str(e),
                     batch_id=batch_dir.name.split(".")[-1],
@@ -290,7 +313,7 @@ class BatchWorkflowManager(WorkflowBase):
                 )
             except Exception as e:
                 return ErrorTask(
-                    poscar_path=task.poscar_path,
+                    path=task.path,
                     stage="infer",
                     error=str(e),
                     batch_id=batch_dir.name.split(".")[-1],
@@ -360,7 +383,7 @@ class BatchWorkflowManager(WorkflowBase):
             else:
                 error_count += 1
                 error_task = ErrorTask(
-                    poscar_path=tasks[idx].poscar_path,
+                    path=tasks[idx].path,
                     stage="calc",
                     error=status,
                     batch_id=batch_dir.name.split(".")[-1],
@@ -382,22 +405,20 @@ class BatchWorkflowManager(WorkflowBase):
         )
 
     def _prepare_olp_tasks(self, batch_dir: Path) -> List[OlpTask]:
-        """Prepare OLP tasks for the batch.
+        """Prepare OLP tasks from stru_log (JSON Lines format)."""
+        config = load_yaml_config(self.ctx.config_path)
+        stru_log = config.get("0olp", {}).get("stru_log", "todo_list.json")
+        stru_log_file = self.ctx.workflow_root / stru_log
 
-        This method should be overridden or configured to provide POSCAR paths.
-        Default implementation reads from a poscar_list.txt file.
-        """
-        poscar_list_file = self.ctx.workflow_root / "poscar_list.txt"
-        if not poscar_list_file.exists():
-            self.logger.warning("No poscar_list.txt found, cannot prepare tasks")
+        if not stru_log_file.exists():
+            self.logger.warning("No input file found: %s", stru_log_file)
             return []
 
         tasks = []
-        with open(poscar_list_file, "r", encoding="utf-8") as f:
-            for line in f:
-                poscar_path = line.strip()
-                if poscar_path and not poscar_path.startswith("#"):
-                    tasks.append(OlpTask(poscar_path=poscar_path))
+        for d in _read_jsonl(stru_log_file):
+            path = d.get("path", "")
+            if path:
+                tasks.append(OlpTask(path=path))
 
         start_idx = len(self.state["completed_batches"]) * self.ctx.batch_size
         end_idx = start_idx + self.ctx.batch_size

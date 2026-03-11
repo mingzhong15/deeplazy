@@ -12,51 +12,51 @@ from typing import Iterator, List
 class OlpTask:
     """OLP stage input task."""
 
-    poscar_path: str
+    path: str
 
     def to_dict(self) -> dict:
-        return {"poscar_path": self.poscar_path}
+        return {"path": self.path}
 
     @classmethod
     def from_dict(cls, d: dict) -> "OlpTask":
-        return cls(poscar_path=d["poscar_path"])
+        return cls(path=d["path"])
 
 
 @dataclass
 class InferTask:
     """Infer stage input task (OLP output)."""
 
-    poscar_path: str
+    path: str
     scf_path: str
 
     def to_dict(self) -> dict:
-        return {"poscar_path": self.poscar_path, "scf_path": self.scf_path}
+        return {"path": self.path, "scf_path": self.scf_path}
 
     @classmethod
     def from_dict(cls, d: dict) -> "InferTask":
-        return cls(poscar_path=d["poscar_path"], scf_path=d["scf_path"])
+        return cls(path=d["path"], scf_path=d["scf_path"])
 
 
 @dataclass
 class CalcTask:
     """Calc stage input task (Infer output)."""
 
-    poscar_path: str
+    path: str
     geth_path: str
 
     def to_dict(self) -> dict:
-        return {"poscar_path": self.poscar_path, "geth_path": self.geth_path}
+        return {"path": self.path, "geth_path": self.geth_path}
 
     @classmethod
     def from_dict(cls, d: dict) -> "CalcTask":
-        return cls(poscar_path=d["poscar_path"], geth_path=d["geth_path"])
+        return cls(path=d["path"], geth_path=d["geth_path"])
 
 
 @dataclass
 class ErrorTask:
     """Failed task record."""
 
-    poscar_path: str
+    path: str
     stage: str
     error: str
     batch_id: str
@@ -64,7 +64,7 @@ class ErrorTask:
 
     def to_dict(self) -> dict:
         return {
-            "poscar_path": self.poscar_path,
+            "path": self.path,
             "stage": self.stage,
             "error": self.error,
             "batch_id": self.batch_id,
@@ -74,7 +74,7 @@ class ErrorTask:
     @classmethod
     def from_dict(cls, d: dict) -> "ErrorTask":
         return cls(
-            poscar_path=d["poscar_path"],
+            path=d["path"],
             stage=d["stage"],
             error=d["error"],
             batch_id=d["batch_id"],

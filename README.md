@@ -57,10 +57,14 @@ dlazy batch-status --config /path/to/global_config.yaml
 For large-scale structure calculations, use the batch workflow:
 
 ```bash
-# Prepare poscar_list.txt with POSCAR paths (one per line)
-/path/to/POSCAR_1
-/path/to/POSCAR_2
+# Prepare todo_list.json (JSON Lines format, one POSCAR per line)
+{"path": "/path/to/POSCAR_1", "elements": ["Al"], "n_atoms": [10]}
+{"path": "/path/to/POSCAR_2", "elements": ["Cu"], "n_atoms": [20]}
 ...
+
+# Configure in global_config.yaml:
+# 0olp:
+#   stru_log: "todo_list.json"  # default
 
 # Run batch workflow
 dlazy batch --config global_config.yaml --batch-size 100
@@ -76,20 +80,30 @@ dlazy batch-status --config global_config.yaml
 
 ```
 workflow_root/
-├── poscar_list.txt           # Input: POSCAR paths
-├── batch_state.json          # State file for resume
-├── monitor_state.json        # Monitor state for error tracking
-├── batch.00000/              # First batch
-│   ├── olp_tasks.jsonl       # OLP input tasks
-│   ├── infer_tasks.jsonl     # Infer input tasks (OLP output)
-│   ├── calc_tasks.jsonl      # Calc input tasks (Infer output)
-│   ├── error_tasks.jsonl     # Failed tasks
-│   └── task.000000/          # Individual task
-│       ├── olp/              # OLP stage output
-│       ├── infer/            # Infer stage output
-│       └── scf/              # Calc stage output
-├── batch.00001/              # Second batch
+├── todo_list.json              # Input: POSCAR paths (JSON Lines)
+├── batch_state.json            # State file for resume
+├── monitor_state.json          # Monitor state for error tracking
+├── batch.00000/                # First batch
+│   ├── olp_tasks.jsonl         # OLP input tasks
+│   ├── infer_tasks.jsonl       # Infer input tasks (OLP output)
+│   ├── calc_tasks.jsonl        # Calc input tasks (Infer output)
+│   ├── error_tasks.jsonl       # Failed tasks
+│   └── task.000000/            # Individual task
+│       ├── olp/                # OLP stage output
+│       ├── infer/              # Infer stage output
+│       └── scf/                # Calc stage output
+├── batch.00001/                # Second batch
 └── ...
+```
+
+### Task Record Format
+
+All task files use JSON Lines format with unified field name `path`:
+
+```json
+{"path": "/path/to/POSCAR"}
+{"path": "/path/to/POSCAR", "scf_path": "batch.00000/task.000000/olp"}
+{"path": "/path/to/POSCAR", "geth_path": "batch.00000/task.000000/infer/geth"}
 ```
 
 ## Configuration
@@ -97,6 +111,24 @@ workflow_root/
 See `examples/demo-workflow/global_config.yaml` for an example configuration file.
 
 ## Changelog
+
+### v2.4.0 (2026-03-12)
+
+**Unified Record Format:**
+- Unified field name: `poscar_path` → `path` across all task records
+- All task files now use consistent JSON Lines format
+- Input file format changed: `poscar_list.txt` → `todo_list.json` (JSON Lines)
+- Read input file from config: `stru_log` parameter in `0olp` section
+
+**Batch Workflow Improvements:**
+- Fixed infinite loop issue: workflow now exits properly when no tasks remain
+- Pre-check tasks before processing each batch
+- Better error messages when input file not found
+
+**Breaking Changes:**
+- `poscar_path` field renamed to `path` in all task records
+- Input file format changed from plain text to JSON Lines
+- Old `poscar_list.txt` no longer supported
 
 ### v2.3.0 (2026-03-11)
 

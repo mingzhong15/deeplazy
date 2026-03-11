@@ -94,12 +94,12 @@ class OLPCommandExecutor:
     """OLP阶段命令执行器"""
 
     @staticmethod
-    def execute(poscar_path: str, ctx: OLPContext) -> Tuple[str, str]:
+    def execute(path: str, ctx: OLPContext) -> Tuple[str, str]:
         """
         执行单个OLP计算任务
 
         Args:
-            poscar_path: POSCAR文件路径
+            path: POSCAR文件路径
             ctx: OLP上下文
 
         Returns:
@@ -107,9 +107,9 @@ class OLPCommandExecutor:
         """
         # 检查节点错误标记
         if ctx.node_error_flag and ctx.node_error_flag.exists():
-            return ("skipped", Path(poscar_path).name)
+            return ("skipped", Path(path).name)
 
-        label = poscar_path
+        label = path
         write_text(ctx.progress_file, f"{label} start\n", append=True)
 
         # 生成随机路径
@@ -127,7 +127,7 @@ class OLPCommandExecutor:
 
             # 1. 创建输入文件
             command_create = ctx.config["commands"]["create_infile"].format(
-                poscar=poscar_path,
+                poscar=path,
                 scf=scf_path,
             )
             subprocess.run(command_create, env=env, shell=True, check=True, text=True)
@@ -212,7 +212,7 @@ class OLPCommandExecutor:
     @staticmethod
     def execute_batch(
         task_index: int,
-        poscar_path: str,
+        path: str,
         batch_dir: Path,
         config: Dict[str, Any],
     ) -> InferTask:
@@ -221,7 +221,7 @@ class OLPCommandExecutor:
 
         Args:
             task_index: Task index within batch
-            poscar_path: POSCAR file path
+            path: POSCAR file path
             batch_dir: Batch directory path
             config: Configuration dict
 
@@ -232,7 +232,7 @@ class OLPCommandExecutor:
             Exception: If execution fails
         """
         logger = get_logger(f"batch.olp.task{task_index}")
-        logger.info("Processing POSCAR: %s", poscar_path)
+        logger.info("Processing POSCAR: %s", path)
 
         task_dir = get_task_dir(batch_dir, task_index)
         olp_dir = task_dir / OLP_SUBDIR
@@ -242,7 +242,7 @@ class OLPCommandExecutor:
             env = os.environ.copy()
 
             command_create = config["commands"]["create_infile"].format(
-                poscar=poscar_path,
+                poscar=path,
                 scf=olp_dir,
             )
             subprocess.run(command_create, env=env, shell=True, check=True, text=True)
@@ -263,7 +263,7 @@ class OLPCommandExecutor:
             logger.info("OLP completed: %s", olp_dir)
 
             return InferTask(
-                poscar_path=poscar_path,
+                path=path,
                 scf_path=str(olp_dir.relative_to(batch_dir.parent)),
             )
 
@@ -598,7 +598,7 @@ class InferCommandExecutor:
             Exception: If execution fails
         """
         logger = get_logger(f"batch.infer.task{task_index}")
-        logger.info("Processing InferTask: %s", infer_task.poscar_path)
+        logger.info("Processing InferTask: %s", infer_task.path)
 
         task_dir = get_task_dir(batch_dir, task_index)
         infer_dir = task_dir / INFER_SUBDIR
@@ -674,7 +674,7 @@ class InferCommandExecutor:
             logger.info("Infer completed: %s", final_geth_dir)
 
             return CalcTask(
-                poscar_path=infer_task.poscar_path,
+                path=infer_task.path,
                 geth_path=str(final_geth_dir.relative_to(batch_dir.parent)),
             )
 
@@ -800,7 +800,7 @@ class CalcCommandExecutor:
             Exception: If execution fails
         """
         logger = get_logger(f"batch.calc.task{task_index}")
-        logger.info("Processing CalcTask: %s", calc_task.poscar_path)
+        logger.info("Processing CalcTask: %s", calc_task.path)
 
         task_dir = get_task_dir(batch_dir, task_index)
         scf_dir = task_dir / SCF_SUBDIR
@@ -808,13 +808,13 @@ class CalcCommandExecutor:
         ensure_directory(scf_dir)
         ensure_directory(geth_dir)
 
-        label = Path(calc_task.poscar_path).name
+        label = Path(calc_task.path).name
 
         try:
             env = os.environ.copy()
 
             command_create = config["commands"]["create_infile"].format(
-                poscar=calc_task.poscar_path,
+                poscar=calc_task.path,
                 scf=scf_dir,
             )
             subprocess.run(command_create, env=env, shell=True, check=True, text=True)
