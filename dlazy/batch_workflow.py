@@ -64,12 +64,19 @@ class BatchScheduler(WorkflowBase):
         if self.ctx.state_file is None:
             self.ctx.state_file = self.ctx.workflow_root / BATCH_STATE_FILE
 
-        if self.ctx.resume and self.ctx.state_file.exists():
+        # --fresh: 删除已有状态，从头开始
+        if self.ctx.fresh and self.ctx.state_file.exists():
+            self.ctx.state_file.unlink()
+            self.logger.info("Fresh start: removed existing state file")
+
+        # 自动加载已有状态
+        if self.ctx.state_file.exists():
             with open(self.ctx.state_file, "r", encoding="utf-8") as f:
                 state = json.load(f)
                 self.logger.info("Resumed from state: %s", self.ctx.state_file)
                 return state
 
+        # 初始化新状态
         state = {
             "current_batch": 0,
             "current_stage": "olp",

@@ -159,7 +159,7 @@ def cmd_batch(args):
         config_path=config_path,
         workflow_root=workdir,
         batch_size=args.batch_size,
-        resume=args.resume,
+        fresh=args.fresh,
     )
 
     scheduler = BatchScheduler(ctx)
@@ -484,9 +484,9 @@ def main():
         help="每批次任务数量 (默认: 100)",
     )
     parser_batch.add_argument(
-        "--resume",
+        "--fresh",
         action="store_true",
-        help="从上次中断处继续",
+        help="从头开始（删除已有状态）",
     )
     parser_batch.set_defaults(func=cmd_batch)
 

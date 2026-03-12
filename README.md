@@ -112,6 +112,26 @@ See `examples/demo-workflow/global_config.yaml` for an example configuration fil
 
 ## Changelog
 
+### v2.9.0 (2026-03-12)
+
+**Auto-Resume Behavior:**
+- `dlazy batch` now automatically resumes from saved state by default
+- New `--fresh` flag to start from scratch (deletes existing state)
+- No need for `--resume` flag anymore
+
+**Infer Stage Fix:**
+- Fixed `data_dir_depth` in `infer.toml.j2`: changed from 2 to 1
+- Fixed transform command `-t` parameter guidance: use `-t 0` for current directory structure
+
+**Usage Changes:**
+```bash
+# Auto-resume (default)
+dlazy batch --config global_config.yaml
+
+# Fresh start
+dlazy batch --config global_config.yaml --fresh
+```
+
 ### v2.7.1 (2026-03-12)
 
 **Critical Fix:**

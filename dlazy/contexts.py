@@ -26,7 +26,7 @@ class BatchContext:
     config_path: Path
     workflow_root: Path
     batch_size: int
-    resume: bool = False
+    fresh: bool = False
     state_file: Optional[Path] = None
     olp_tasks_file: Optional[Path] = None
     infer_tasks_file: Optional[Path] = None
