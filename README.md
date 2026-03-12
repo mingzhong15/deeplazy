@@ -112,6 +112,24 @@ See `examples/demo-workflow/global_config.yaml` for an example configuration fil
 
 ## Changelog
 
+### v2.7.0 (2026-03-12)
+
+**Batch Workflow Fixes:**
+- SLURM scripts now correctly read `olp_tasks.jsonl` and `calc_tasks.jsonl` instead of `global_config.stru_log`
+- Added `tasks_file` parameter to SLURM script generators for explicit task file paths
+- Modified `_read_calc_records` to support JSON Lines format (`calc_tasks.jsonl`)
+
+**PID Management:**
+- Added PID file management for `dlazy batch` command (`pid.batch`)
+- Added `dlazy batch-stop` command to stop running batch workflows
+- Enhanced `dlazy batch-status` with detailed progress and error information
+- Added signal handlers for graceful shutdown (SIGTERM, SIGINT)
+- Shows PID on startup for monitoring
+
+**New Constants:**
+- `STAGE_TASKS_FILE_MAP`: maps stage names to task file names
+- `BATCH_PID_FILE`, `BATCH_LOG_FILE`: for batch workflow management
+
 ### v2.4.0 (2026-03-12)
 
 **Unified Record Format:**
