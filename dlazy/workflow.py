@@ -26,6 +26,7 @@ from .constants import (
 )
 from .exceptions import AbortException, FailureType
 from .monitor import JobMonitor, MonitorConfig, TaskError
+from .path_resolver import RunPathResolver
 from .template_generator import generate_submit_script
 from .utils import chunk_records, load_yaml_config, parse_folders_file
 from .workflow_base import WorkflowBase
@@ -48,6 +49,7 @@ class WorkflowManager(WorkflowBase):
         super().__init__()
         self.config_path = Path(config_path).resolve()
         self.workdir = Path(workdir).resolve()
+        self.path_resolver = RunPathResolver(self.workdir)
         self.state_file = self.workdir / STATE_FILE
         self.log_file = self.workdir / LOG_FILE
         self.pid_file = self.workdir / PID_FILE
@@ -175,19 +177,21 @@ class WorkflowManager(WorkflowBase):
             if not (self.workdir / "todo_list.json").exists():
                 return False, "todo_list.json 不存在"
         elif stage_name == "1infer":
-            if not (self.workdir / "0olp" / FOLDERS_FILE).exists():
+            folders_file = self.path_resolver.get_olp_folders_file()
+            if not folders_file.exists():
                 return False, "0olp/folders.dat 不存在，请先完成 0olp 阶段"
         elif stage_name == "2calc":
-            if not (self.workdir / "1infer" / HAMLOG_FILE).exists():
+            hamlog_file = self.path_resolver.get_infer_hamlog_file()
+            if not hamlog_file.exists():
                 return False, "1infer/hamlog.dat 不存在，请先完成 1infer 阶段"
         return True, ""
 
     def _validate_output_files(self, stage_name: str) -> bool:
         """验证输出文件"""
         output_files = {
-            "0olp": self.workdir / "0olp" / FOLDERS_FILE,
-            "1infer": self.workdir / "1infer" / HAMLOG_FILE,
-            "2calc": self.workdir / "2calc" / FOLDERS_FILE,
+            "0olp": self.path_resolver.get_olp_folders_file(),
+            "1infer": self.path_resolver.get_infer_hamlog_file(),
+            "2calc": self.path_resolver.get_calc_folders_file(),
         }
         output_file = output_files.get(stage_name)
         return output_file and output_file.exists() and output_file.stat().st_size > 0
@@ -237,17 +241,24 @@ class WorkflowManager(WorkflowBase):
         }
 
         input_output_map = {
-            "0olp": ("todo_list.json", f"0olp/{FOLDERS_FILE}"),
-            "1infer": (f"0olp/{FOLDERS_FILE}", f"1infer/{HAMLOG_FILE}"),
-            "2calc": (f"1infer/{HAMLOG_FILE}", f"2calc/{FOLDERS_FILE}"),
+            "0olp": (
+                self.workdir / "todo_list.json",
+                self.path_resolver.get_olp_folders_file(),
+            ),
+            "1infer": (
+                self.path_resolver.get_olp_folders_file(),
+                self.path_resolver.get_infer_hamlog_file(),
+            ),
+            "2calc": (
+                self.path_resolver.get_infer_hamlog_file(),
+                self.path_resolver.get_calc_folders_file(),
+            ),
         }
 
         if stage_name not in input_output_map:
             return info
 
-        input_file, output_file = input_output_map[stage_name]
-        input_path = self.workdir / input_file
-        output_path = self.workdir / output_file
+        input_path, output_path = input_output_map[stage_name]
 
         info["input_file"] = str(input_path)
         info["output_file"] = str(output_path)
@@ -364,7 +375,7 @@ class WorkflowManager(WorkflowBase):
 
     def _prepare_infer_groups(self, stage_dir: Path) -> None:
         """准备推理分组"""
-        folders_file = self.workdir / "0olp" / FOLDERS_FILE
+        folders_file = self.path_resolver.get_olp_folders_file()
         if not folders_file.exists():
             return
 
