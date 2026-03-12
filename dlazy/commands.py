@@ -251,7 +251,15 @@ class OLPCommandExecutor:
 
             os.chdir(task_dir)
             command_openmx = config["commands"]["run_openmx"].format(ntasks=1)
-            subprocess.run(command_openmx, env=env, shell=True, text=True)
+            with open("openmx.std", "w", encoding="utf-8") as f:
+                subprocess.run(
+                    command_openmx,
+                    env=env,
+                    shell=True,
+                    stdout=f,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                )
 
             command_extract = config["commands"]["extract_overlap"].format(scf=task_dir)
             subprocess.run(command_extract, env=env, shell=True, check=True, text=True)
@@ -882,7 +890,15 @@ class CalcCommandExecutor:
 
             os.chdir(scf_dir)
             command_run = config["commands"]["run_openmx"]
-            subprocess.run(command_run, env=env, shell=True, text=True)
+            with open("openmx.std", "a", encoding="utf-8") as f:
+                subprocess.run(
+                    command_run,
+                    env=env,
+                    shell=True,
+                    stdout=f,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                )
 
             subprocess.run("cat openmx.out >> openmx.scfout", shell=True, text=True)
             subprocess.run("rm -rf openmx_rst", shell=True, text=True)

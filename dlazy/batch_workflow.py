@@ -286,7 +286,7 @@ class BatchScheduler(WorkflowBase):
 
         main_job_id = job_id.split("_")[0]
         result = subprocess.run(
-            f"sacct -j {main_job_id} --format=State --noheader --parsertype",
+            f"sacct -j {main_job_id} --format=State --noheader",
             shell=True,
             capture_output=True,
             text=True,

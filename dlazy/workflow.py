@@ -163,7 +163,7 @@ class WorkflowManager(WorkflowBase):
             return "UNKNOWN"
 
         main_job_id = job_id.split("_")[0]
-        cmd = f"sacct -j {main_job_id} --format=State --noheader --parsertype"
+        cmd = f"sacct -j {main_job_id} --format=State --noheader"
         result = self._run_command(cmd)
         if result.returncode != 0:
             return "UNKNOWN"
