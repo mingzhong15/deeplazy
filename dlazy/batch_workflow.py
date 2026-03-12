@@ -46,6 +46,27 @@ from .utils import (
 from .workflow_base import WorkflowBase
 
 
+def _process_olp_task(args):
+    """Process single OLP task for multiprocessing."""
+    idx, task_path, batch_dir_str, config = args
+    batch_dir = Path(batch_dir_str)
+    try:
+        return OLPCommandExecutor.execute_batch(
+            task_index=idx,
+            path=task_path,
+            batch_dir=batch_dir,
+            config=config,
+        )
+    except Exception as e:
+        return ErrorTask(
+            path=task_path,
+            stage="olp",
+            error=str(e),
+            batch_id=batch_dir.name.split(".")[-1],
+            task_id=f"{idx:06d}",
+        )
+
+
 class BatchWorkflowManager(WorkflowBase):
     """Manages batch iterative computation for large-scale structure calculations."""
 
@@ -202,16 +223,6 @@ class BatchWorkflowManager(WorkflowBase):
                 "batches": len(self.state["completed_batches"]),
             }
 
-        except AbortException as e:
-            self.logger.error("Batch workflow aborted: %s", e.reason)
-            self._save_state()
-            self._save_monitor_state(self.ctx.workflow_root / MONITOR_STATE_FILE)
-            return {
-                "status": "aborted",
-                "reason": e.reason,
-                "batches": len(self.state["completed_batches"]),
-            }
-
     def _run_olp_batch(self, batch_dir: Path, config: Dict[str, Any]) -> None:
         """Run OLP stage for current batch."""
         self.logger.info("Running OLP batch in %s", batch_dir)
@@ -231,26 +242,14 @@ class BatchWorkflowManager(WorkflowBase):
         infer_tasks: List[InferTask] = []
         error_file = self._get_tasks_file("error", batch_dir)
 
-        def process_task(indexed_task):
-            idx, task = indexed_task
-            try:
-                return OLPCommandExecutor.execute_batch(
-                    task_index=idx,
-                    path=task.path,
-                    batch_dir=batch_dir,
-                    config=config,
-                )
-            except Exception as e:
-                return ErrorTask(
-                    path=task.path,
-                    stage="olp",
-                    error=str(e),
-                    batch_id=batch_dir.name.split(".")[-1],
-                    task_id=f"{idx:06d}",
-                )
+        max_processes = config.get("max_processes", 1)
 
-        with multiprocessing.Pool(processes=1) as pool:
-            results = pool.map(process_task, enumerate(tasks))
+        task_args = [
+            (idx, task.path, str(batch_dir), config) for idx, task in enumerate(tasks)
+        ]
+
+        with multiprocessing.Pool(processes=max_processes) as pool:
+            results = pool.map(_process_olp_task, task_args)
 
         for result in results:
             if isinstance(result, InferTask):
