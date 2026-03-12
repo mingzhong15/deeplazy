@@ -383,6 +383,10 @@ class BatchScheduler(WorkflowBase):
         if not job_id:
             return False
 
+        self.state["current_job_id"] = job_id
+        self.state["current_stage"] = stage
+        self._save_state()
+
         return self._wait_for_job_completion(job_id, stage)
 
     def _has_pending_batches(self) -> bool:

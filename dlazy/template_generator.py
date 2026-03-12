@@ -147,7 +147,7 @@ def parse_batch_index(workdir):
 
 try:
     workflow_root = Path('{workflow_root_arg}')
-    batch_index = {batch_index} if {batch_index} is not None else parse_batch_index('{workdir}')
+    batch_index = {batch_index} if ({batch_index} is not None) else parse_batch_index('{workdir}')
 
     if batch_index is None:
         raise ValueError("batch_index is required for batch mode")
@@ -339,7 +339,7 @@ def chunk_tasks(tasks, num_groups, random_seed=137):
 
 try:
     workflow_root = Path('{workflow_root_arg}')
-    batch_index = {batch_index} if {batch_index} is not None else parse_batch_index('{workdir}')
+    batch_index = {batch_index} if ({batch_index} is not None) else parse_batch_index('{workdir}')
 
     if batch_index is None:
         raise ValueError("batch_index is required for batch mode")
@@ -529,7 +529,7 @@ def parse_batch_index(workdir):
 
 try:
     workflow_root = Path('{workflow_root_arg}')
-    batch_index = {batch_index} if {batch_index} is not None else parse_batch_index('{workdir}')
+    batch_index = {batch_index} if ({batch_index} is not None) else parse_batch_index('{workdir}')
 
     if batch_index is None:
         raise ValueError("batch_index is required for batch mode")

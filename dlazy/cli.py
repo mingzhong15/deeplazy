@@ -168,21 +168,80 @@ def cmd_batch(args):
 
 
 def cmd_batch_status(args):
-    """查看批量工作流状态"""
-    from .batch_workflow import BatchScheduler
-    from .contexts import BatchContext
+    """查看批量工作流状态 - 只读模式，不修改状态文件"""
+    import json
+    import os
+
+    from .constants import (
+        BATCH_STATE_FILE,
+        BATCH_PID_FILE,
+        BATCH_STAGES,
+        MONITOR_STATE_FILE,
+    )
 
     config_path = Path(args.config).resolve()
     workdir = Path(args.workdir).resolve() if args.workdir else config_path.parent
 
-    ctx = BatchContext(
-        config_path=config_path,
-        workflow_root=workdir,
-        batch_size=100,
-    )
+    print("=== 批量工作流状态 ===")
 
-    scheduler = BatchScheduler(ctx)
-    scheduler.show_status()
+    pid_file = workdir / BATCH_PID_FILE
+    if not pid_file.exists():
+        print("进程状态: 未运行\n")
+    else:
+        try:
+            with open(pid_file, "r") as f:
+                pid = int(f.read().strip())
+            os.kill(pid, 0)
+            print(f"进程状态: 运行中 (PID: {pid})\n")
+        except (ValueError, OSError):
+            print("进程状态: 已停止\n")
+
+    state_file = workdir / BATCH_STATE_FILE
+    if not state_file.exists():
+        print("批量工作流未启动或状态文件不存在")
+        return
+
+    with open(state_file, "r", encoding="utf-8") as f:
+        state = json.load(f)
+
+    print(f"初始化: {'是' if state.get('initialized') else '否'}")
+    print(f"当前批次: {state.get('current_batch', 0)}")
+    print(f"总批次数: {state.get('total_batches', 'N/A')}")
+    print(f"已完成批次: {len(state.get('completed_batches', []))}")
+
+    current_stage = state.get("current_stage", "olp")
+    print(f"当前阶段: {current_stage}")
+
+    for stage in BATCH_STAGES:
+        stage_key = f"{stage}_completed"
+        status = (
+            "✓ 完成"
+            if state.get(stage_key)
+            else ("进行中..." if stage == current_stage else "待执行")
+        )
+        print(f"  {stage}: {status}")
+
+    if state.get("current_job_id"):
+        print(f"\n当前作业: {state.get('current_job_id')}")
+
+    if state.get("last_update"):
+        print(f"\n最后更新: {state.get('last_update')}")
+
+    monitor_file = workdir / MONITOR_STATE_FILE
+    if monitor_file.exists():
+        with open(monitor_file, "r", encoding="utf-8") as f:
+            monitor_state = json.load(f)
+
+        errors = monitor_state.get("errors", [])
+        if errors:
+            print(f"\n错误记录: {len(errors)} 条")
+            for err in errors[-5:]:
+                print(
+                    f"  - [{err.get('stage')}] {err.get('failure_type')}: {err.get('message')}"
+                )
+
+        if monitor_state.get("abort_flag"):
+            print(f"\n中断原因: {monitor_state.get('abort_reason', '未知')}")
 
 
 def cmd_batch_stop(args):

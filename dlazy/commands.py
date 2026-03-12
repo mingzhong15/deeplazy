@@ -274,7 +274,7 @@ class OLPCommandExecutor:
 
             return InferTask(
                 path=task.path,
-                scf_path=str(task_dir.relative_to(resolver._workflow_root)),
+                scf_path=str(task_dir),
             )
 
         except Exception as e:
@@ -626,7 +626,7 @@ class InferCommandExecutor:
                 task_dirname = f"{TASK_DIR_PREFIX}.{i:0{TASK_PADDING}d}"
                 target_task_dir = inputs_geth_dir / task_dirname
 
-                olp_dir = resolver._workflow_root / infer_task.scf_path
+                olp_dir = Path(infer_task.scf_path)
                 overlap_file = olp_dir / OVERLAP_FILENAME
 
                 if not overlap_file.exists():
@@ -724,9 +724,7 @@ class InferCommandExecutor:
                 calc_tasks.append(
                     CalcTask(
                         path=infer_task.path,
-                        geth_path=str(
-                            geth_task_dir.relative_to(resolver._workflow_root)
-                        ),
+                        geth_path=str(geth_task_dir),
                     )
                 )
 
@@ -874,7 +872,7 @@ class CalcCommandExecutor:
             )
             subprocess.run(command_create, env=env, shell=True, check=True, text=True)
 
-            infer_geth_dir = resolver._workflow_root / task.geth_path
+            infer_geth_dir = Path(task.geth_path)
             pred_ham = infer_geth_dir / HAMILTONIAN_LINK_FILENAME
             if not pred_ham.exists():
                 pred_ham = infer_geth_dir / HAMILTONIAN_PRED_FILENAME
