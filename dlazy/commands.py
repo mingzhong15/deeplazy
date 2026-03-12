@@ -627,18 +627,25 @@ class InferCommandExecutor:
                 target_task_dir = inputs_geth_dir / task_dirname
 
                 olp_dir = Path(infer_task.scf_path)
-                overlap_file = olp_dir / OVERLAP_FILENAME
 
+                if not olp_dir.exists():
+                    raise FileNotFoundError(f"OLP directory not found: {olp_dir}")
+
+                overlap_file = olp_dir / OVERLAP_FILENAME
                 if not overlap_file.exists():
                     raise FileNotFoundError(f"Overlap file not found: {overlap_file}")
 
-                ensure_directory(target_task_dir)
-                target_overlap = target_task_dir / OVERLAP_FILENAME
-                if target_overlap.exists() or target_overlap.is_symlink():
-                    target_overlap.unlink()
-                os.symlink(overlap_file, target_overlap)
+                if target_task_dir.exists() or target_task_dir.is_symlink():
+                    if target_task_dir.is_symlink():
+                        target_task_dir.unlink()
+                    else:
+                        import shutil
 
-            logger.info("Linked %d overlap files", len(infer_tasks))
+                        shutil.rmtree(target_task_dir)
+
+                os.symlink(olp_dir, target_task_dir)
+
+            logger.info("Linked %d OLP directories", len(infer_tasks))
 
             input_dft_dir = group_dir / INPUTS_SUBDIR / DFT_SUBDIR
             ensure_directory(input_dft_dir)
