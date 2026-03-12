@@ -62,6 +62,12 @@ INFER_TASKS_FILE = "infer_tasks.jsonl"
 CALC_TASKS_FILE = "calc_tasks.jsonl"
 ERROR_TASKS_FILE = "error_tasks.jsonl"
 
+# Stage to tasks file mapping (for batch mode SLURM scripts)
+STAGE_TASKS_FILE_MAP = {
+    "0olp": OLP_TASKS_FILE,
+    "2calc": CALC_TASKS_FILE,
+}
+
 # ============================================
 # Batch State
 # ============================================
@@ -113,3 +119,9 @@ DEFAULT_MAX_RETRIES = {
 }
 
 MONITOR_STATE_FILE = "monitor_state.json"
+
+# ============================================
+# Batch PID and Log Files
+# ============================================
+BATCH_PID_FILE = "pid.batch"
+BATCH_LOG_FILE = "batch.log"

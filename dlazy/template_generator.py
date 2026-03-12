@@ -48,6 +48,7 @@ def generate_embedded_olp_script(
     num_tasks: int,
     slurm_config: Dict[str, Any],
     software_config: Dict[str, Any],
+    tasks_file: Optional[str] = None,
 ) -> str:
     """
     Generate OLP SLURM script with dynamic batch_size.
@@ -58,6 +59,7 @@ def generate_embedded_olp_script(
         num_tasks: Number of tasks in this batch
         slurm_config: SLURM configuration
         software_config: Software configuration
+        tasks_file: Path to olp_tasks.jsonl (for batch mode)
 
     Returns:
         SLURM script content
@@ -79,6 +81,8 @@ def generate_embedded_olp_script(
     actual_array_size = min(array_size, num_tasks)
     if actual_array_size < 1:
         actual_array_size = 1
+
+    stru_log_arg = f", stru_log='{tasks_file}'" if tasks_file else ""
 
     return f"""#!/bin/bash
 #SBATCH --no-requeue
@@ -114,7 +118,7 @@ try:
     result = WorkflowExecutor.run_olp_stage(
         global_config='{config_path}',
         start=int(os.environ['START']),
-        end=int(os.environ['END'])
+        end=int(os.environ['END']){stru_log_arg}
     )
     print(f"[OLP] Complete: {{result}}")
 except Exception as e:
@@ -218,6 +222,7 @@ def generate_embedded_calc_script(
     num_tasks: int,
     slurm_config: Dict[str, Any],
     software_config: Dict[str, Any],
+    tasks_file: Optional[str] = None,
 ) -> str:
     """
     Generate Calc SLURM script with dynamic batch_size.
@@ -228,6 +233,7 @@ def generate_embedded_calc_script(
         num_tasks: Number of tasks in this batch
         slurm_config: SLURM configuration
         software_config: Software configuration
+        tasks_file: Path to calc_tasks.jsonl (for batch mode)
 
     Returns:
         SLURM script content
@@ -249,6 +255,8 @@ def generate_embedded_calc_script(
     actual_array_size = min(array_size, num_tasks)
     if actual_array_size < 1:
         actual_array_size = 1
+
+    stru_log_arg = f", stru_log='{tasks_file}'" if tasks_file else ""
 
     return f"""#!/bin/bash
 #SBATCH --no-requeue
@@ -284,7 +292,7 @@ try:
     result = WorkflowExecutor.run_calc_stage(
         global_config='{config_path}',
         start=int(os.environ['START']),
-        end=int(os.environ['END'])
+        end=int(os.environ['END']){stru_log_arg}
     )
     print(f"[Calc] Complete: {{result}}")
 except Exception as e:
@@ -306,6 +314,7 @@ def generate_submit_script(
     config_path: str,
     software_config: Dict[str, Any],
     num_tasks: Optional[int] = None,
+    tasks_file: Optional[str] = None,
 ) -> Path:
     """
     Generate SLURM submit script with dynamic batch_size.
@@ -318,6 +327,7 @@ def generate_submit_script(
         config_path: Global config file path
         software_config: Software configuration
         num_tasks: Number of tasks (for dynamic batch_size calculation)
+        tasks_file: Path to tasks file (olp_tasks.jsonl or calc_tasks.jsonl)
 
     Returns:
         Path to generated script
@@ -331,6 +341,7 @@ def generate_submit_script(
             num_tasks=num_tasks or 1,
             slurm_config=slurm_config,
             software_config=software_config,
+            tasks_file=tasks_file,
         )
     elif stage_name == "1infer":
         num_groups = stage_config.get("num_groups", num_tasks or 10)
@@ -348,6 +359,7 @@ def generate_submit_script(
             num_tasks=num_tasks or 1,
             slurm_config=slurm_config,
             software_config=software_config,
+            tasks_file=tasks_file,
         )
     else:
         raise ValueError(f"Unknown stage: {stage_name}")

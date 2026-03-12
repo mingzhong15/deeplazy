@@ -4,13 +4,18 @@ from __future__ import annotations
 
 import json
 import math
+import os
+import signal
 import subprocess
+import sys
 import time
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from .constants import (
+    BATCH_PID_FILE,
+    BATCH_LOG_FILE,
     BATCH_STATE_FILE,
     BATCH_STAGES,
     MAX_RETRY_COUNT,
@@ -351,6 +356,12 @@ class BatchScheduler(WorkflowBase):
         stage_dir = getattr(resolver, f"get_{stage}_slurm_dir")()
         stage_dir.mkdir(parents=True, exist_ok=True)
 
+        tasks_file = None
+        if stage == "olp":
+            tasks_file = str(resolver.get_olp_tasks_file())
+        elif stage == "calc":
+            tasks_file = str(resolver.get_calc_tasks_file())
+
         script_path = generate_submit_script(
             stage_name=config_key,
             stage_dir=stage_dir,
@@ -359,6 +370,7 @@ class BatchScheduler(WorkflowBase):
             config_path=str(self.ctx.config_path),
             software_config=self.config.get("software", {}),
             num_tasks=num_tasks,
+            tasks_file=tasks_file,
         )
 
         job_id = self._submit_slurm_job(script_path, stage_dir, f"batch-{stage}")
@@ -373,6 +385,31 @@ class BatchScheduler(WorkflowBase):
         resolver = self._get_path_resolver(self.state["current_batch"])
         return self._count_batch_tasks(resolver) > 0
 
+    def _write_pid(self) -> None:
+        """Write PID file."""
+        pid_file = self.ctx.workflow_root / BATCH_PID_FILE
+        with open(pid_file, "w") as f:
+            f.write(str(os.getpid()))
+
+    def _remove_pid(self) -> None:
+        """Remove PID file."""
+        pid_file = self.ctx.workflow_root / BATCH_PID_FILE
+        if pid_file.exists():
+            pid_file.unlink()
+
+    def _is_running(self) -> bool:
+        """Check if another instance is running."""
+        pid_file = self.ctx.workflow_root / BATCH_PID_FILE
+        if not pid_file.exists():
+            return False
+        try:
+            with open(pid_file, "r") as f:
+                pid = int(f.read().strip())
+            os.kill(pid, 0)
+            return True
+        except (ValueError, OSError):
+            return False
+
     def run(self) -> Dict[str, Any]:
         """
         Run the batch workflow loop.
@@ -380,9 +417,24 @@ class BatchScheduler(WorkflowBase):
         Returns:
             Result dict with status and batch count
         """
+        if self._is_running():
+            print("已有批量工作流实例运行中，请先使用 dlazy batch-stop 停止")
+            return {"status": "already_running"}
+
         self.logger.info(
             "Starting batch workflow with batch_size=%d", self.ctx.batch_size
         )
+        print(f"批量工作流已启动 (PID: {os.getpid()})")
+
+        def signal_handler(signum, frame):
+            self.logger.info("收到停止信号，正在退出...")
+            self._remove_pid()
+            sys.exit(0)
+
+        signal.signal(signal.SIGTERM, signal_handler)
+        signal.signal(signal.SIGINT, signal_handler)
+
+        self._write_pid()
 
         try:
             if not self.state.get("initialized"):
@@ -459,6 +511,76 @@ class BatchScheduler(WorkflowBase):
                 "reason": e.reason,
                 "batches": len(self.state["completed_batches"]),
             }
+        finally:
+            self._remove_pid()
+
+    def show_status(self) -> None:
+        """Show batch workflow status."""
+        print("=== 批量工作流状态 ===")
+
+        pid_file = self.ctx.workflow_root / BATCH_PID_FILE
+        if not pid_file.exists():
+            print("进程状态: 未运行\n")
+        else:
+            try:
+                with open(pid_file, "r") as f:
+                    pid = int(f.read().strip())
+                os.kill(pid, 0)
+                print(f"进程状态: 运行中 (PID: {pid})\n")
+            except (ValueError, OSError):
+                print("进程状态: 已停止\n")
+
+        state_file = self.ctx.workflow_root / BATCH_STATE_FILE
+        if not state_file.exists():
+            print("批量工作流未启动或状态文件不存在")
+            return
+
+        with open(state_file, "r", encoding="utf-8") as f:
+            state = json.load(f)
+
+        print(f"初始化: {'是' if state.get('initialized') else '否'}")
+        print(f"当前批次: {state.get('current_batch', 0)}")
+        print(f"总批次数: {state.get('total_batches', 'N/A')}")
+        print(f"已完成批次: {len(state.get('completed_batches', []))}")
+
+        for stage in BATCH_STAGES:
+            stage_key = f"{stage}_completed"
+            status = "✓ 完成" if state.get(stage_key) else "待执行"
+            print(f"  {stage}: {status}")
+
+        if state.get("last_update"):
+            print(f"\n最后更新: {state.get('last_update')}")
+
+        monitor_file = self.ctx.workflow_root / MONITOR_STATE_FILE
+        if monitor_file.exists():
+            with open(monitor_file, "r", encoding="utf-8") as f:
+                monitor_state = json.load(f)
+
+            errors = monitor_state.get("errors", [])
+            if errors:
+                print(f"\n错误记录: {len(errors)} 条")
+                for err in errors[-5:]:
+                    print(
+                        f"  - [{err.get('stage')}] {err.get('failure_type')}: {err.get('message')}"
+                    )
+
+            if monitor_state.get("abort_flag"):
+                print(f"\n中断原因: {monitor_state.get('abort_reason', '未知')}")
+
+    def stop(self) -> None:
+        """Stop the running batch workflow."""
+        pid_file = self.ctx.workflow_root / BATCH_PID_FILE
+        if not pid_file.exists():
+            print("没有运行中的批量工作流实例")
+            return
+
+        try:
+            with open(pid_file, "r") as f:
+                pid = int(f.read().strip())
+            os.kill(pid, signal.SIGTERM)
+            print(f"已发送停止信号到进程 {pid}")
+        except (ValueError, OSError) as e:
+            print(f"停止失败: {e}")
 
 
 class BatchWorkflowManager(BatchScheduler):

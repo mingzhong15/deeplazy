@@ -311,17 +311,33 @@ class WorkflowExecutor:
     def _read_calc_records(
         ctx: CalcContext, start: int, end: int, stru_log: Optional[str]
     ) -> List[Tuple[str, str]]:
-        """读取Calc阶段记录"""
-        hamlog = Path(stru_log) if stru_log else ctx.hamlog_file
+        """读取Calc阶段记录
 
-        with open(hamlog, "r") as f:
+        支持两种格式：
+        1. JSON Lines (calc_tasks.jsonl): {"path": "...", "geth_path": "..."}
+        2. 纯文本 (hamlog.dat): label geth_path
+        """
+        if stru_log:
+            tasks_file = Path(stru_log)
+        else:
+            tasks_file = ctx.hamlog_file
+
+        with open(tasks_file, "r") as f:
             lines = f.readlines()
 
         records = []
         for i in range(start, min(end, len(lines))):
-            parts = lines[i].strip().split()
-            if len(parts) >= 2:
-                records.append((parts[0], parts[1]))
+            line = lines[i].strip()
+            if not line:
+                continue
+
+            try:
+                data = json.loads(line)
+                records.append((data["path"], data["geth_path"]))
+            except json.JSONDecodeError:
+                parts = line.split()
+                if len(parts) >= 2:
+                    records.append((parts[0], parts[1]))
 
         return records
 

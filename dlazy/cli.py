@@ -169,27 +169,38 @@ def cmd_batch(args):
 
 def cmd_batch_status(args):
     """查看批量工作流状态"""
-    import json
-    from .constants import BATCH_STATE_FILE
+    from .batch_workflow import BatchScheduler
+    from .contexts import BatchContext
 
     config_path = Path(args.config).resolve()
     workdir = Path(args.workdir).resolve() if args.workdir else config_path.parent
 
-    state_file = workdir / BATCH_STATE_FILE
-    if not state_file.exists():
-        print("批量工作流未启动或状态文件不存在")
-        return
+    ctx = BatchContext(
+        config_path=config_path,
+        workflow_root=workdir,
+        batch_size=100,
+    )
 
-    with open(state_file, "r", encoding="utf-8") as f:
-        state = json.load(f)
+    scheduler = BatchScheduler(ctx)
+    scheduler.show_status()
 
-    print("批量工作流状态:")
-    print(f"  当前批次: {state.get('current_batch', 0)}")
-    print(f"  当前阶段: {state.get('current_stage', 'N/A')}")
-    print(f"  已完成批次: {len(state.get('completed_batches', []))}")
-    print(f"  OLP完成: {state.get('olp_completed', False)}")
-    print(f"  Infer完成: {state.get('infer_completed', False)}")
-    print(f"  Calc完成: {state.get('calc_completed', False)}")
+
+def cmd_batch_stop(args):
+    """停止批量工作流"""
+    from .batch_workflow import BatchScheduler
+    from .contexts import BatchContext
+
+    config_path = Path(args.config).resolve()
+    workdir = Path(args.workdir).resolve() if args.workdir else config_path.parent
+
+    ctx = BatchContext(
+        config_path=config_path,
+        workflow_root=workdir,
+        batch_size=100,
+    )
+
+    scheduler = BatchScheduler(ctx)
+    scheduler.stop()
 
 
 def main():
@@ -319,6 +330,15 @@ def main():
     )
     parser_batch_status.add_argument("--workdir", help="工作目录")
     parser_batch_status.set_defaults(func=cmd_batch_status)
+
+    parser_batch_stop = subparsers.add_parser("batch-stop", help="停止批量工作流")
+    parser_batch_stop.add_argument(
+        "--config",
+        default="global_config.yaml",
+        help="配置文件路径 (默认: ./global_config.yaml)",
+    )
+    parser_batch_stop.add_argument("--workdir", help="工作目录")
+    parser_batch_stop.set_defaults(func=cmd_batch_stop)
 
     args = parser.parse_args()
 
