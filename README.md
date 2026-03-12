@@ -112,6 +112,29 @@ See `examples/demo-workflow/global_config.yaml` for an example configuration fil
 
 ## Changelog
 
+### v2.7.1 (2026-03-12)
+
+**Critical Fix:**
+- Fixed output directory nesting issue: outputs now correctly go to `batch.00000/output_olp/` instead of `batch.00000/slurm_olp/0olp/`
+- Added `workdir` parameter to all SLURM script generators (OLP/Infer/Calc)
+- `BatchScheduler._run_stage()` now passes `workdir` to ensure correct output paths
+
+**Expected Directory Structure:**
+```
+batch.00000/
+├── slurm_olp/          # SLURM scripts only
+│   ├── submit.sh
+│   ├── olp_tasks.jsonl
+│   └── slurm-*.out
+├── output_olp/         # OLP outputs (correct location)
+│   ├── folders.dat
+│   ├── progress
+│   └── ...task dirs...
+├── slurm_infer/
+├── output_infer/
+└── ...
+```
+
 ### v2.7.0 (2026-03-12)
 
 **Batch Workflow Fixes:**
