@@ -49,6 +49,7 @@ def generate_embedded_olp_script(
     slurm_config: Dict[str, Any],
     software_config: Dict[str, Any],
     tasks_file: Optional[str] = None,
+    workdir: Optional[str] = None,
 ) -> str:
     """
     Generate OLP SLURM script with dynamic batch_size.
@@ -60,6 +61,7 @@ def generate_embedded_olp_script(
         slurm_config: SLURM configuration
         software_config: Software configuration
         tasks_file: Path to olp_tasks.jsonl (for batch mode)
+        workdir: Working directory (batch.00000/ for batch mode)
 
     Returns:
         SLURM script content
@@ -83,6 +85,7 @@ def generate_embedded_olp_script(
         actual_array_size = 1
 
     stru_log_arg = f", stru_log='{tasks_file}'" if tasks_file else ""
+    workdir_arg = f", workdir='{workdir}'" if workdir else ""
 
     return f"""#!/bin/bash
 #SBATCH --no-requeue
@@ -118,7 +121,7 @@ try:
     result = WorkflowExecutor.run_olp_stage(
         global_config='{config_path}',
         start=int(os.environ['START']),
-        end=int(os.environ['END']){stru_log_arg}
+        end=int(os.environ['END']){stru_log_arg}{workdir_arg}
     )
     print(f"[OLP] Complete: {{result}}")
 except Exception as e:
@@ -138,6 +141,7 @@ def generate_embedded_infer_script(
     num_groups: int,
     slurm_config: Dict[str, Any],
     software_config: Dict[str, Any],
+    workdir: Optional[str] = None,
 ) -> str:
     """
     Generate Infer SLURM script with dynamic array size.
@@ -148,6 +152,7 @@ def generate_embedded_infer_script(
         num_groups: Number of groups to process
         slurm_config: SLURM configuration
         software_config: Software configuration
+        workdir: Working directory (batch.00000/ for batch mode)
 
     Returns:
         SLURM script content
@@ -169,6 +174,8 @@ def generate_embedded_infer_script(
     actual_array_size = min(array_size, num_groups)
     if actual_array_size < 1:
         actual_array_size = 1
+
+    workdir_arg = f", workdir='{workdir}'" if workdir else ""
 
     return f"""#!/bin/bash
 #SBATCH --no-requeue
@@ -202,7 +209,7 @@ from dlazy.executor import WorkflowExecutor
 try:
     result = WorkflowExecutor.run_infer_stage(
         global_config='{config_path}',
-        group_index=int(os.environ['GROUP_INDEX'])
+        group_index=int(os.environ['GROUP_INDEX']){workdir_arg}
     )
     print(f"[Infer] Complete: {{result}}")
 except Exception as e:
@@ -223,6 +230,7 @@ def generate_embedded_calc_script(
     slurm_config: Dict[str, Any],
     software_config: Dict[str, Any],
     tasks_file: Optional[str] = None,
+    workdir: Optional[str] = None,
 ) -> str:
     """
     Generate Calc SLURM script with dynamic batch_size.
@@ -234,6 +242,7 @@ def generate_embedded_calc_script(
         slurm_config: SLURM configuration
         software_config: Software configuration
         tasks_file: Path to calc_tasks.jsonl (for batch mode)
+        workdir: Working directory (batch.00000/ for batch mode)
 
     Returns:
         SLURM script content
@@ -257,6 +266,7 @@ def generate_embedded_calc_script(
         actual_array_size = 1
 
     stru_log_arg = f", stru_log='{tasks_file}'" if tasks_file else ""
+    workdir_arg = f", workdir='{workdir}'" if workdir else ""
 
     return f"""#!/bin/bash
 #SBATCH --no-requeue
@@ -292,7 +302,7 @@ try:
     result = WorkflowExecutor.run_calc_stage(
         global_config='{config_path}',
         start=int(os.environ['START']),
-        end=int(os.environ['END']){stru_log_arg}
+        end=int(os.environ['END']){stru_log_arg}{workdir_arg}
     )
     print(f"[Calc] Complete: {{result}}")
 except Exception as e:
@@ -315,6 +325,7 @@ def generate_submit_script(
     software_config: Dict[str, Any],
     num_tasks: Optional[int] = None,
     tasks_file: Optional[str] = None,
+    workdir: Optional[str] = None,
 ) -> Path:
     """
     Generate SLURM submit script with dynamic batch_size.
@@ -328,6 +339,7 @@ def generate_submit_script(
         software_config: Software configuration
         num_tasks: Number of tasks (for dynamic batch_size calculation)
         tasks_file: Path to tasks file (olp_tasks.jsonl or calc_tasks.jsonl)
+        workdir: Working directory (batch.00000/ for batch mode)
 
     Returns:
         Path to generated script
@@ -342,6 +354,7 @@ def generate_submit_script(
             slurm_config=slurm_config,
             software_config=software_config,
             tasks_file=tasks_file,
+            workdir=workdir,
         )
     elif stage_name == "1infer":
         num_groups = stage_config.get("num_groups", num_tasks or 10)
@@ -351,6 +364,7 @@ def generate_submit_script(
             num_groups=num_groups,
             slurm_config=slurm_config,
             software_config=software_config,
+            workdir=workdir,
         )
     elif stage_name == "2calc":
         content = generate_embedded_calc_script(
@@ -360,6 +374,7 @@ def generate_submit_script(
             slurm_config=slurm_config,
             software_config=software_config,
             tasks_file=tasks_file,
+            workdir=workdir,
         )
     else:
         raise ValueError(f"Unknown stage: {stage_name}")

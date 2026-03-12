@@ -362,6 +362,8 @@ class BatchScheduler(WorkflowBase):
         elif stage == "calc":
             tasks_file = str(resolver.get_calc_tasks_file())
 
+        workdir = str(resolver.get_workdir())
+
         script_path = generate_submit_script(
             stage_name=config_key,
             stage_dir=stage_dir,
@@ -371,6 +373,7 @@ class BatchScheduler(WorkflowBase):
             software_config=self.config.get("software", {}),
             num_tasks=num_tasks,
             tasks_file=tasks_file,
+            workdir=workdir,
         )
 
         job_id = self._submit_slurm_job(script_path, stage_dir, f"batch-{stage}")
