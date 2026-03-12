@@ -19,6 +19,7 @@ from .constants import (
     PROGRESS_FILE,
 )
 from .contexts import CalcContext, InferContext, OLPContext
+from .path_resolver import PathResolver, RunPathResolver
 from .exceptions import AbortException, FailureType, NodeError
 from .utils import (
     get_logger,
@@ -43,6 +44,7 @@ class WorkflowExecutor:
         global_config: str,
         start: int,
         end: int,
+        path_resolver: Optional[PathResolver] = None,
         workdir: Optional[str] = None,
         stru_log: Optional[str] = None,
         monitor: Optional[JobMonitor] = None,
@@ -54,6 +56,7 @@ class WorkflowExecutor:
             global_config: 全局配置文件路径
             start: 起始索引
             end: 结束索引
+            path_resolver: 路径解析器（用于run/batch模式统一）
             workdir: 工作目录（默认当前目录）
             stru_log: 结构列表文件（覆盖配置）
             monitor: 作业监控器
@@ -67,25 +70,28 @@ class WorkflowExecutor:
             AbortException: 快速失败
         """
         logger = get_logger("executor.olp")
-        logger.info("run_olp_stage: start=%d, end=%d, workdir=%s", start, end, workdir)
+        logger.info("run_olp_stage: start=%d, end=%d", start, end)
 
         config = load_global_config_section(Path(global_config), "0olp")
-        workdir = Path(workdir) if workdir else Path.cwd()
 
-        workflow_root = get_workflow_root(workdir)
-        result_dir = get_result_olp_dir(workflow_root)
+        if path_resolver is None:
+            path_resolver = RunPathResolver(Path(workdir) if workdir else Path.cwd())
+
+        workflow_root = path_resolver.get_workdir()
+        result_dir = path_resolver.get_olp_output_dir()
 
         ctx = OLPContext(
             config=config,
             workflow_root=workflow_root,
-            workdir=workdir,
+            workdir=path_resolver.get_workdir(),
             result_dir=result_dir,
-            progress_file=workdir / PROGRESS_FILE,
-            folders_file=workdir / FOLDERS_FILE,
-            error_file=workdir / ERROR_FILE,
+            progress_file=path_resolver.get_olp_progress_file(),
+            folders_file=path_resolver.get_olp_folders_file(),
+            error_file=path_resolver.get_olp_error_file(),
             num_cores=config.get("num_cores", 56),
             max_processes=config.get("max_processes", 7),
-            node_error_flag=workdir / f".node_error_flag-{secrets.token_hex(4)}",
+            node_error_flag=path_resolver.get_workdir()
+            / f".node_error_flag-{secrets.token_hex(4)}",
             stru_log=Path(stru_log) if stru_log else None,
             monitor=monitor,
         )
@@ -133,7 +139,10 @@ class WorkflowExecutor:
 
     @staticmethod
     def run_infer_stage(
-        global_config: str, group_index: int, workdir: Optional[str] = None
+        global_config: str,
+        group_index: int,
+        path_resolver: Optional[PathResolver] = None,
+        workdir: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         执行 Infer 阶段
@@ -141,6 +150,7 @@ class WorkflowExecutor:
         Args:
             global_config: 全局配置文件路径
             group_index: 组索引（1-based）
+            path_resolver: 路径解析器（用于run/batch模式统一）
             workdir: 工作目录
 
         Returns:
@@ -152,22 +162,24 @@ class WorkflowExecutor:
             InferError: 推理失败
         """
         logger = get_logger("executor.infer")
-        logger.info("run_infer_stage: group_index=%d, workdir=%s", group_index, workdir)
+        logger.info("run_infer_stage: group_index=%d", group_index)
 
         config = load_global_config_section(Path(global_config), "1infer")
-        workdir = Path(workdir) if workdir else Path.cwd()
 
-        workflow_root = get_workflow_root(workdir)
-        result_dir = get_result_infer_dir(workflow_root)
+        if path_resolver is None:
+            path_resolver = RunPathResolver(Path(workdir) if workdir else Path.cwd())
+
+        workflow_root = path_resolver.get_workdir()
+        result_dir = path_resolver.get_infer_output_dir()
 
         ctx = InferContext(
             config=config,
             workflow_root=workflow_root,
-            workdir=workdir,
+            workdir=path_resolver.get_workdir(),
             result_dir=result_dir,
-            error_file=workdir / ERROR_FILE,
-            hamlog_file=workdir / HAMLOG_FILE,
-            group_info_file=workdir / GROUP_INFO_FILE,
+            error_file=path_resolver.get_infer_error_file(),
+            hamlog_file=path_resolver.get_infer_hamlog_file(),
+            group_info_file=workflow_root / "1infer" / GROUP_INFO_FILE,
             num_groups=config.get("num_groups", 10),
             random_seed=config.get("random_seed", 137),
             parallel=config.get("parallel", 56),
@@ -190,6 +202,7 @@ class WorkflowExecutor:
         global_config: str,
         start: int,
         end: int,
+        path_resolver: Optional[PathResolver] = None,
         workdir: Optional[str] = None,
         stru_log: Optional[str] = None,
         monitor: Optional[JobMonitor] = None,
@@ -201,6 +214,7 @@ class WorkflowExecutor:
             global_config: 全局配置文件路径
             start: 起始索引
             end: 结束索引
+            path_resolver: 路径解析器（用于run/batch模式统一）
             workdir: 工作目录
             stru_log: 结构列表文件（覆盖默认hamlog）
             monitor: 作业监控器
@@ -212,23 +226,25 @@ class WorkflowExecutor:
             AbortException: 快速失败
         """
         logger = get_logger("executor.calc")
-        logger.info("run_calc_stage: start=%d, end=%d, workdir=%s", start, end, workdir)
+        logger.info("run_calc_stage: start=%d, end=%d", start, end)
 
         config = load_global_config_section(Path(global_config), "2calc")
-        workdir = Path(workdir) if workdir else Path.cwd()
 
-        workflow_root = get_workflow_root(workdir)
-        result_dir = get_result_geth_dir(workflow_root)
+        if path_resolver is None:
+            path_resolver = RunPathResolver(Path(workdir) if workdir else Path.cwd())
+
+        workflow_root = path_resolver.get_workdir()
+        result_dir = path_resolver.get_calc_output_dir()
 
         ctx = CalcContext(
             config=config,
             workflow_root=workflow_root,
-            workdir=workdir,
+            workdir=path_resolver.get_workdir(),
             result_dir=result_dir,
-            progress_file=workdir / PROGRESS_FILE,
-            folders_file=workdir / FOLDERS_FILE,
-            error_file=workdir / ERROR_FILE,
-            hamlog_file=workflow_root / "1infer" / HAMLOG_FILE,
+            progress_file=path_resolver.get_calc_progress_file(),
+            folders_file=path_resolver.get_calc_folders_file(),
+            error_file=path_resolver.get_calc_error_file(),
+            hamlog_file=path_resolver.get_infer_hamlog_file(),
             monitor=monitor,
         )
 
