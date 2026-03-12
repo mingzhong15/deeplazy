@@ -16,6 +16,10 @@ from .constants import (
     BATCH_PADDING,
     SLURM_SUBDIR_TEMPLATE,
     OUTPUT_SUBDIR_TEMPLATE,
+    TASK_DIR_PREFIX,
+    TASK_PADDING,
+    GROUP_PREFIX,
+    GROUP_PADDING,
 )
 
 if TYPE_CHECKING:
@@ -191,6 +195,21 @@ class BatchPathResolver(PathResolver):
     def get_next_batch_resolver(self) -> "BatchPathResolver":
         """Get PathResolver for the next batch."""
         return BatchPathResolver(self._workflow_root, self._batch_index + 1)
+
+    def get_olp_task_dir(self, task_index: int) -> Path:
+        """Get OLP task directory: output_olp/task.NNNNNN/"""
+        task_dirname = f"{TASK_DIR_PREFIX}.{task_index:0{TASK_PADDING}d}"
+        return self.get_olp_output_dir() / task_dirname
+
+    def get_calc_task_dir(self, task_index: int) -> Path:
+        """Get Calc task directory: output_calc/task.NNNNNN/"""
+        task_dirname = f"{TASK_DIR_PREFIX}.{task_index:0{TASK_PADDING}d}"
+        return self.get_calc_output_dir() / task_dirname
+
+    def get_infer_group_dir(self, group_id: int) -> Path:
+        """Get Infer group directory: output_infer/g.NNN/"""
+        group_dirname = f"{GROUP_PREFIX}.{group_id:0{GROUP_PADDING}d}"
+        return self.get_infer_output_dir() / group_dirname
 
     @property
     def batch_index(self) -> int:

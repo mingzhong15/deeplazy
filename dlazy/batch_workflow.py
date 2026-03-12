@@ -374,6 +374,8 @@ class BatchScheduler(WorkflowBase):
             num_tasks=num_tasks,
             tasks_file=tasks_file,
             workdir=workdir,
+            batch_index=resolver.batch_index,
+            workflow_root=str(resolver._workflow_root),
         )
 
         job_id = self._submit_slurm_job(script_path, stage_dir, f"batch-{stage}")

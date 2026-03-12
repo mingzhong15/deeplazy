@@ -41,6 +41,8 @@ from .constants import (
     INFER_TASKS_FILE,
     CALC_TASKS_FILE,
     ERROR_TASKS_FILE,
+    TASK_DIR_PREFIX,
+    TASK_PADDING,
 )
 from .record_utils import (
     OlpTask,
@@ -64,6 +66,7 @@ from .exceptions import (
 
 if TYPE_CHECKING:
     from .contexts import OLPContext, InferContext, CalcContext
+    from .path_resolver import BatchPathResolver
 
 
 def _cleanup_directory(path: Path) -> None:
@@ -212,8 +215,8 @@ class OLPCommandExecutor:
     @staticmethod
     def execute_batch(
         task_index: int,
-        path: str,
-        batch_dir: Path,
+        task: "OlpTask",
+        resolver: "BatchPathResolver",
         config: Dict[str, Any],
     ) -> InferTask:
         """
@@ -221,8 +224,8 @@ class OLPCommandExecutor:
 
         Args:
             task_index: Task index within batch
-            path: POSCAR file path
-            batch_dir: Batch directory path
+            task: OlpTask containing path
+            resolver: BatchPathResolver for path resolution
             config: Configuration dict
 
         Returns:
@@ -232,39 +235,38 @@ class OLPCommandExecutor:
             Exception: If execution fails
         """
         logger = get_logger(f"batch.olp.task{task_index}")
-        logger.info("Processing POSCAR: %s", path)
+        logger.info("Processing POSCAR: %s", task.path)
 
-        task_dir = get_task_dir(batch_dir, task_index)
-        olp_dir = task_dir / OLP_SUBDIR
-        ensure_directory(olp_dir)
+        task_dir = resolver.get_olp_task_dir(task_index)
+        ensure_directory(task_dir)
 
         try:
             env = os.environ.copy()
 
             command_create = config["commands"]["create_infile"].format(
-                poscar=path,
-                scf=olp_dir,
+                poscar=task.path,
+                scf=task_dir,
             )
             subprocess.run(command_create, env=env, shell=True, check=True, text=True)
 
-            os.chdir(olp_dir)
+            os.chdir(task_dir)
             command_openmx = config["commands"]["run_openmx"].format(ntasks=1)
             subprocess.run(command_openmx, env=env, shell=True, text=True)
 
-            command_extract = config["commands"]["extract_overlap"].format(scf=olp_dir)
+            command_extract = config["commands"]["extract_overlap"].format(scf=task_dir)
             subprocess.run(command_extract, env=env, shell=True, check=True, text=True)
 
-            overlaps_file = olp_dir / OVERLAP_FILENAME
+            overlaps_file = task_dir / OVERLAP_FILENAME
             ok, message = validate_h5(overlaps_file)
 
             if not ok:
                 raise Exception(f"Overlap validation failed: {message}")
 
-            logger.info("OLP completed: %s", olp_dir)
+            logger.info("OLP completed: %s", task_dir)
 
             return InferTask(
-                path=path,
-                scf_path=str(olp_dir.relative_to(batch_dir.parent)),
+                path=task.path,
+                scf_path=str(task_dir.relative_to(resolver._workflow_root)),
             )
 
         except Exception as e:
@@ -571,71 +573,88 @@ class InferCommandExecutor:
 
     @staticmethod
     def execute_batch(
-        task_index: int,
-        infer_task: InferTask,
-        batch_dir: Path,
+        group_index: int,
+        infer_tasks: List[InferTask],
+        resolver: "BatchPathResolver",
         config: Dict[str, Any],
         model_dir: Path,
         dataset_prefix: str,
         parallel: int,
-    ) -> CalcTask:
+    ) -> List[CalcTask]:
         """
-        Execute single Infer task in batch mode with deterministic paths.
+        Execute Infer tasks for a group in batch mode with deterministic paths.
 
         Args:
-            task_index: Task index within batch
-            infer_task: InferTask from OLP stage
-            batch_dir: Batch directory path
+            group_index: Group index (1-based)
+            infer_tasks: List of InferTask for this group
+            resolver: BatchPathResolver for path resolution
             config: Configuration dict
             model_dir: Model directory for inference
             dataset_prefix: Dataset prefix for config
             parallel: Parallelism level
 
         Returns:
-            CalcTask for the output
+            List of CalcTask for the output
 
         Raises:
             Exception: If execution fails
         """
-        logger = get_logger(f"batch.infer.task{task_index}")
-        logger.info("Processing InferTask: %s", infer_task.path)
+        logger = get_logger(f"batch.infer.group{group_index}")
+        logger.info("Processing group %d with %d tasks", group_index, len(infer_tasks))
 
-        task_dir = get_task_dir(batch_dir, task_index)
-        infer_dir = task_dir / INFER_SUBDIR
-        ensure_directory(infer_dir)
+        group_dir = resolver.get_infer_group_dir(group_index)
+        ensure_directory(group_dir)
 
-        olp_dir = batch_dir.parent / infer_task.scf_path
-        if not olp_dir.exists():
-            raise FileNotFoundError(f"OLP directory not found: {olp_dir}")
+        inputs_geth_dir = group_dir / INPUTS_SUBDIR / GETH_SUBDIR
+        outputs_dir = group_dir / OUTPUTS_SUBDIR
+        final_geth_dir = group_dir / GETH_SUBDIR
+
+        ensure_directory(inputs_geth_dir)
+        ensure_directory(outputs_dir)
+        ensure_directory(final_geth_dir)
 
         try:
-            _ensure_symlink(olp_dir, infer_dir / "olp")
+            for i, infer_task in enumerate(infer_tasks):
+                task_dirname = f"{TASK_DIR_PREFIX}.{i:0{TASK_PADDING}d}"
+                target_task_dir = inputs_geth_dir / task_dirname
 
-            input_dft_dir = infer_dir / "input_dft"
+                olp_dir = resolver._workflow_root / infer_task.scf_path
+                overlap_file = olp_dir / OVERLAP_FILENAME
+
+                if not overlap_file.exists():
+                    raise FileNotFoundError(f"Overlap file not found: {overlap_file}")
+
+                ensure_directory(target_task_dir)
+                target_overlap = target_task_dir / OVERLAP_FILENAME
+                if target_overlap.exists() or target_overlap.is_symlink():
+                    target_overlap.unlink()
+                os.symlink(overlap_file, target_overlap)
+
+            logger.info("Linked %d overlap files", len(infer_tasks))
+
+            input_dft_dir = group_dir / INPUTS_SUBDIR / DFT_SUBDIR
             ensure_directory(input_dft_dir)
 
             transform_cmd = config["commands"]["transform"]
             command = transform_cmd.format(
-                input_dir=infer_dir / "olp",
+                input_dir=inputs_geth_dir,
                 output_dir=input_dft_dir,
                 parallel=parallel,
             )
             logger.info("Running transform: %s", command)
             run_subprocess(command, shell=True)
 
-            output_dir = infer_dir / "output"
-            ensure_directory(output_dir)
-
             package_dir = Path(__file__).parent
             template_path = package_dir / INFER_TEMPLATE
             content = template_path.read_text(encoding="utf-8")
             config_content = content.format(
-                inputs_dir=str(infer_dir),
-                outputs_dir=str(output_dir),
-                dataset_name=f"{dataset_prefix}_task{task_index:06d}",
+                inputs_dir=str(group_dir / INPUTS_SUBDIR),
+                outputs_dir=str(outputs_dir),
+                dataset_name=f"{dataset_prefix}_g{group_index:03d}",
                 model_dir=str(model_dir),
             )
-            infer_config_path = infer_dir / "infer.toml"
+            infer_config_path = group_dir / CONFIG_SUBDIR / "infer.toml"
+            ensure_directory(infer_config_path.parent)
             write_text(infer_config_path, config_content)
 
             infer_cmd = config["commands"]["infer"]
@@ -643,25 +662,37 @@ class InferCommandExecutor:
             logger.info("Running infer: %s", command)
             run_subprocess(command, shell=True)
 
-            subdirs = [item for item in output_dir.iterdir() if item.is_dir()]
+            subdirs = [item for item in outputs_dir.iterdir() if item.is_dir()]
             if not subdirs:
-                raise InferError(f"No output directory in {output_dir}")
+                raise InferError(f"No output directory in {outputs_dir}")
             latest_output = max(subdirs, key=lambda item: item.stat().st_mtime)
 
             output_dft_dir = latest_output / DFT_SUBDIR
-            geth_new_dir = infer_dir / "geth_new"
+            geth_new_dir = group_dir / GETH_NEW_SUBDIR
             ensure_directory(geth_new_dir)
 
-            source_ham = output_dft_dir / HAMILTONIAN_PRED_FILENAME
-            if not source_ham.exists():
-                raise InferError(f"Predicted Hamiltonian not found: {source_ham}")
+            calc_tasks = []
+            for i, infer_task in enumerate(infer_tasks):
+                task_dirname = f"{TASK_DIR_PREFIX}.{i:0{TASK_PADDING}d}"
 
-            target_ham = geth_new_dir / HAMILTONIAN_LINK_FILENAME
-            if target_ham.exists() or target_ham.is_symlink():
-                target_ham.unlink()
-            os.symlink(source_ham, target_ham)
+                source_ham = output_dft_dir / task_dirname / HAMILTONIAN_PRED_FILENAME
+                if not source_ham.exists():
+                    raise InferError(f"Predicted Hamiltonian not found: {source_ham}")
 
-            final_geth_dir = infer_dir / GETH_SUBDIR
+                target_task_dir = geth_new_dir / task_dirname
+                ensure_directory(target_task_dir)
+                target_ham = target_task_dir / HAMILTONIAN_LINK_FILENAME
+                if target_ham.exists() or target_ham.is_symlink():
+                    target_ham.unlink()
+                os.symlink(source_ham, target_ham)
+
+                source_info = output_dft_dir / task_dirname / "info.json"
+                if source_info.exists():
+                    target_info = target_task_dir / "info.json"
+                    if target_info.exists() or target_info.is_symlink():
+                        target_info.unlink()
+                    os.symlink(source_info, target_info)
+
             transform_reverse_cmd = config["commands"]["transform_reverse"]
             command = transform_reverse_cmd.format(
                 input_dir=geth_new_dir,
@@ -671,12 +702,28 @@ class InferCommandExecutor:
             logger.info("Running transform_reverse: %s", command)
             run_subprocess(command, shell=True)
 
-            logger.info("Infer completed: %s", final_geth_dir)
+            for i, infer_task in enumerate(infer_tasks):
+                task_dirname = f"{TASK_DIR_PREFIX}.{i:0{TASK_PADDING}d}"
+                geth_task_dir = final_geth_dir / task_dirname
+                ham_file = geth_task_dir / HAMILTONIAN_FILENAME
 
-            return CalcTask(
-                path=infer_task.path,
-                geth_path=str(final_geth_dir.relative_to(batch_dir.parent)),
-            )
+                ok, message = validate_h5(ham_file)
+                if not ok:
+                    raise Exception(
+                        f"Hamiltonian validation failed for task {i}: {message}"
+                    )
+
+                calc_tasks.append(
+                    CalcTask(
+                        path=infer_task.path,
+                        geth_path=str(
+                            geth_task_dir.relative_to(resolver._workflow_root)
+                        ),
+                    )
+                )
+
+            logger.info("Infer completed for group %d", group_index)
+            return calc_tasks
 
         except Exception as e:
             logger.error("Infer failed: %s", e)
@@ -780,8 +827,8 @@ class CalcCommandExecutor:
     @staticmethod
     def execute_batch(
         task_index: int,
-        calc_task: CalcTask,
-        batch_dir: Path,
+        task: CalcTask,
+        resolver: "BatchPathResolver",
         config: Dict[str, Any],
     ) -> Tuple[str, str]:
         """
@@ -789,8 +836,8 @@ class CalcCommandExecutor:
 
         Args:
             task_index: Task index within batch
-            calc_task: CalcTask from Infer stage
-            batch_dir: Batch directory path
+            task: CalcTask from Infer stage
+            resolver: BatchPathResolver for path resolution
             config: Configuration dict
 
         Returns:
@@ -800,26 +847,26 @@ class CalcCommandExecutor:
             Exception: If execution fails
         """
         logger = get_logger(f"batch.calc.task{task_index}")
-        logger.info("Processing CalcTask: %s", calc_task.path)
+        logger.info("Processing CalcTask: %s", task.path)
 
-        task_dir = get_task_dir(batch_dir, task_index)
+        task_dir = resolver.get_calc_task_dir(task_index)
         scf_dir = task_dir / SCF_SUBDIR
-        geth_dir = task_dir / "geth_final"
+        geth_dir = task_dir / GETH_SUBDIR
         ensure_directory(scf_dir)
         ensure_directory(geth_dir)
 
-        label = Path(calc_task.path).name
+        label = Path(task.path).name
 
         try:
             env = os.environ.copy()
 
             command_create = config["commands"]["create_infile"].format(
-                poscar=calc_task.path,
+                poscar=task.path,
                 scf=scf_dir,
             )
             subprocess.run(command_create, env=env, shell=True, check=True, text=True)
 
-            infer_geth_dir = batch_dir.parent / calc_task.geth_path
+            infer_geth_dir = resolver._workflow_root / task.geth_path
             pred_ham = infer_geth_dir / HAMILTONIAN_LINK_FILENAME
             if not pred_ham.exists():
                 pred_ham = infer_geth_dir / HAMILTONIAN_PRED_FILENAME

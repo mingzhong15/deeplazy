@@ -19,7 +19,7 @@ from .constants import (
     PROGRESS_FILE,
 )
 from .contexts import CalcContext, InferContext, OLPContext
-from .path_resolver import PathResolver, RunPathResolver
+from .path_resolver import BatchPathResolver, PathResolver, RunPathResolver
 from .exceptions import AbortException, FailureType, NodeError
 from .utils import (
     get_logger,
@@ -48,6 +48,7 @@ class WorkflowExecutor:
         workdir: Optional[str] = None,
         stru_log: Optional[str] = None,
         monitor: Optional[JobMonitor] = None,
+        batch_index: Optional[int] = None,
     ) -> Dict[str, int]:
         """
         执行 OLP 阶段
@@ -60,6 +61,7 @@ class WorkflowExecutor:
             workdir: 工作目录（默认当前目录）
             stru_log: 结构列表文件（覆盖配置）
             monitor: 作业监控器
+            batch_index: batch索引（batch模式）
 
         Returns:
             {'success': N, 'failed': M, 'skipped': K}
@@ -75,7 +77,13 @@ class WorkflowExecutor:
         config = load_global_config_section(Path(global_config), "0olp")
 
         if path_resolver is None:
-            path_resolver = RunPathResolver(Path(workdir) if workdir else Path.cwd())
+            if batch_index is not None:
+                workflow_root = Path(workdir) if workdir else Path.cwd()
+                path_resolver = BatchPathResolver(workflow_root, batch_index)
+            else:
+                path_resolver = RunPathResolver(
+                    Path(workdir) if workdir else Path.cwd()
+                )
 
         workflow_root = path_resolver.get_workdir()
         result_dir = path_resolver.get_olp_output_dir()
@@ -96,7 +104,7 @@ class WorkflowExecutor:
             monitor=monitor,
         )
 
-        records = WorkflowExecutor._read_olp_records(ctx, start, end)
+        records = WorkflowExecutor._read_olp_records(ctx, start, end, path_resolver)
         logger.info("读取到 %d 条记录", len(records))
 
         max_processes = ctx.max_processes
@@ -143,6 +151,7 @@ class WorkflowExecutor:
         group_index: int,
         path_resolver: Optional[PathResolver] = None,
         workdir: Optional[str] = None,
+        batch_index: Optional[int] = None,
     ) -> Dict[str, Any]:
         """
         执行 Infer 阶段
@@ -152,6 +161,7 @@ class WorkflowExecutor:
             group_index: 组索引（1-based）
             path_resolver: 路径解析器（用于run/batch模式统一）
             workdir: 工作目录
+            batch_index: batch索引（batch模式）
 
         Returns:
             执行结果
@@ -167,7 +177,13 @@ class WorkflowExecutor:
         config = load_global_config_section(Path(global_config), "1infer")
 
         if path_resolver is None:
-            path_resolver = RunPathResolver(Path(workdir) if workdir else Path.cwd())
+            if batch_index is not None:
+                workflow_root = Path(workdir) if workdir else Path.cwd()
+                path_resolver = BatchPathResolver(workflow_root, batch_index)
+            else:
+                path_resolver = RunPathResolver(
+                    Path(workdir) if workdir else Path.cwd()
+                )
 
         workflow_root = path_resolver.get_workdir()
         result_dir = path_resolver.get_infer_output_dir()
@@ -206,6 +222,7 @@ class WorkflowExecutor:
         workdir: Optional[str] = None,
         stru_log: Optional[str] = None,
         monitor: Optional[JobMonitor] = None,
+        batch_index: Optional[int] = None,
     ) -> Dict[str, int]:
         """
         执行 Calc 阶段
@@ -218,6 +235,7 @@ class WorkflowExecutor:
             workdir: 工作目录
             stru_log: 结构列表文件（覆盖默认hamlog）
             monitor: 作业监控器
+            batch_index: batch索引（batch模式）
 
         Returns:
             {'success': N, 'failed': M}
@@ -231,7 +249,13 @@ class WorkflowExecutor:
         config = load_global_config_section(Path(global_config), "2calc")
 
         if path_resolver is None:
-            path_resolver = RunPathResolver(Path(workdir) if workdir else Path.cwd())
+            if batch_index is not None:
+                workflow_root = Path(workdir) if workdir else Path.cwd()
+                path_resolver = BatchPathResolver(workflow_root, batch_index)
+            else:
+                path_resolver = RunPathResolver(
+                    Path(workdir) if workdir else Path.cwd()
+                )
 
         workflow_root = path_resolver.get_workdir()
         result_dir = path_resolver.get_calc_output_dir()
@@ -248,7 +272,9 @@ class WorkflowExecutor:
             monitor=monitor,
         )
 
-        records = WorkflowExecutor._read_calc_records(ctx, start, end, stru_log)
+        records = WorkflowExecutor._read_calc_records(
+            ctx, start, end, stru_log, path_resolver
+        )
         logger.info("读取到 %d 条记录", len(records))
 
         with multiprocessing.Pool(processes=1) as pool:
@@ -284,20 +310,34 @@ class WorkflowExecutor:
     # ==================== 辅助函数 ====================
 
     @staticmethod
-    def _read_olp_records(ctx: OLPContext, start: int, end: int) -> List[str]:
-        """读取OLP阶段记录"""
-        stru_log = ctx.stru_log
-        if stru_log is None:
-            stru_log_path = ctx.config.get("stru_log")
-            if stru_log_path:
-                stru_log = Path(stru_log_path)
-                if not stru_log.is_absolute():
-                    stru_log = ctx.workflow_root / stru_log
+    def _read_olp_records(
+        ctx: OLPContext,
+        start: int,
+        end: int,
+        path_resolver: Optional[PathResolver] = None,
+    ) -> List[str]:
+        """读取OLP阶段记录
 
-        if stru_log is None:
-            raise ValueError("未指定结构列表文件")
+        支持两种模式:
+        1. Batch模式: 从 olp_tasks.jsonl 读取
+        2. Run模式: 从 stru_log 文件读取
+        """
+        if isinstance(path_resolver, BatchPathResolver):
+            tasks_file = path_resolver.get_olp_tasks_file()
+        else:
+            stru_log = ctx.stru_log
+            if stru_log is None:
+                stru_log_path = ctx.config.get("stru_log")
+                if stru_log_path:
+                    stru_log = Path(stru_log_path)
+                    if not stru_log.is_absolute():
+                        stru_log = ctx.workflow_root / stru_log
 
-        with open(stru_log, "r") as f:
+            if stru_log is None:
+                raise ValueError("未指定结构列表文件")
+            tasks_file = stru_log
+
+        with open(tasks_file, "r") as f:
             lines = f.readlines()
 
         records = []
@@ -309,15 +349,25 @@ class WorkflowExecutor:
 
     @staticmethod
     def _read_calc_records(
-        ctx: CalcContext, start: int, end: int, stru_log: Optional[str]
+        ctx: CalcContext,
+        start: int,
+        end: int,
+        stru_log: Optional[str],
+        path_resolver: Optional[PathResolver] = None,
     ) -> List[Tuple[str, str]]:
         """读取Calc阶段记录
+
+        支持两种模式:
+        1. Batch模式: 从 calc_tasks.jsonl 读取
+        2. Run模式: 从 hamlog.dat 或 stru_log 读取
 
         支持两种格式：
         1. JSON Lines (calc_tasks.jsonl): {"path": "...", "geth_path": "..."}
         2. 纯文本 (hamlog.dat): label geth_path
         """
-        if stru_log:
+        if isinstance(path_resolver, BatchPathResolver):
+            tasks_file = path_resolver.get_calc_tasks_file()
+        elif stru_log:
             tasks_file = Path(stru_log)
         else:
             tasks_file = ctx.hamlog_file

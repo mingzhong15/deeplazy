@@ -1,5 +1,6 @@
 """SLURM submit script generator with dynamic batch_size calculation."""
 
+import json
 import math
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -42,6 +43,18 @@ def calculate_batch_size(num_tasks: int, array_size: int) -> int:
     return math.ceil(num_tasks / array_size)
 
 
+def _parse_batch_index_from_workdir(workdir: str) -> Optional[int]:
+    """Parse batch_index from workdir (batch.NNNNN format)."""
+    if not workdir:
+        return None
+    import re
+
+    match = re.search(r"batch\.(\d+)", workdir)
+    if match:
+        return int(match.group(1))
+    return None
+
+
 def generate_embedded_olp_script(
     python_path: str,
     config_path: str,
@@ -50,6 +63,8 @@ def generate_embedded_olp_script(
     software_config: Dict[str, Any],
     tasks_file: Optional[str] = None,
     workdir: Optional[str] = None,
+    batch_index: Optional[int] = None,
+    workflow_root: Optional[str] = None,
 ) -> str:
     """
     Generate OLP SLURM script with dynamic batch_size.
@@ -62,6 +77,8 @@ def generate_embedded_olp_script(
         software_config: Software configuration
         tasks_file: Path to olp_tasks.jsonl (for batch mode)
         workdir: Working directory (batch.00000/ for batch mode)
+        batch_index: Batch index (optional, will be parsed from workdir if not provided)
+        workflow_root: Workflow root directory (for batch mode)
 
     Returns:
         SLURM script content
@@ -83,6 +100,91 @@ def generate_embedded_olp_script(
     actual_array_size = min(array_size, num_tasks)
     if actual_array_size < 1:
         actual_array_size = 1
+
+    use_batch_mode = batch_index is not None or workflow_root is not None
+
+    if use_batch_mode:
+        workflow_root_arg = workflow_root or workdir
+        return f"""#!/bin/bash
+#SBATCH --no-requeue
+#SBATCH --job-name={job_name}
+#SBATCH --array=1-{actual_array_size}
+#SBATCH --partition={partition}
+#SBATCH --nodes={nodes}
+#SBATCH --ntasks-per-node={ntasks}
+#SBATCH --time={time_limit}
+
+{modules_section}
+{env_vars_section}
+
+export BATCH_SIZE={batch_size}
+export START=$(( ($SLURM_ARRAY_TASK_ID - 1) * $BATCH_SIZE ))
+export END=$(( $SLURM_ARRAY_TASK_ID * $BATCH_SIZE ))
+
+echo "[OLP] Starting at: $(date)"
+echo "[OLP] Running on: $(hostname)"
+echo "[OLP] Job ID: $SLURM_JOB_ID"
+echo "[OLP] Array ID: $SLURM_ARRAY_TASK_ID"
+echo "[OLP] Processing: $START to $END (batch_size={batch_size})"
+
+{python_path} - <<'PYTHON_EOF'
+import os
+import sys
+import json
+
+{sys_path_line}
+
+from pathlib import Path
+from dlazy.path_resolver import BatchPathResolver
+from dlazy.commands import OLPCommandExecutor
+from dlazy.record_utils import read_olp_tasks, append_infer_task, InferTask
+from dlazy.utils import load_global_config_section
+
+def parse_batch_index(workdir):
+    import re
+    match = re.search(r'batch\.(\d+)', str(workdir))
+    return int(match.group(1)) if match else None
+
+try:
+    workflow_root = Path('{workflow_root_arg}')
+    batch_index = {batch_index} if {batch_index} is not None else parse_batch_index('{workdir}')
+
+    if batch_index is None:
+        raise ValueError("batch_index is required for batch mode")
+
+    resolver = BatchPathResolver(workflow_root, batch_index)
+    config = load_global_config_section(Path('{config_path}'), '0olp')
+
+    start = int(os.environ['START'])
+    end = int(os.environ['END'])
+
+    tasks_file = resolver.get_olp_tasks_file()
+    all_tasks = read_olp_tasks(tasks_file)
+    tasks = all_tasks[start:end]
+
+    print(f"[OLP] Processing {{len(tasks)}} tasks ({{start}}:{{end}})")
+
+    success = 0
+    failed = 0
+    for task_index, task in enumerate(tasks, start=start):
+        try:
+            result = OLPCommandExecutor.execute_batch(task_index, task, resolver, config)
+            append_infer_task(resolver.get_infer_tasks_file(), result)
+            success += 1
+        except Exception as e:
+            print(f"[OLP] Task {{task_index}} failed: {{e}}")
+            failed += 1
+
+    print(f"[OLP] Complete: success={{success}}, failed={{failed}}")
+except Exception as e:
+    print(f"[OLP] Error: {{e}}", file=sys.stderr)
+    import traceback
+    traceback.print_exc()
+    sys.exit(1)
+PYTHON_EOF
+
+echo "[OLP] Finished at: $(date)"
+"""
 
     stru_log_arg = f", stru_log='{tasks_file}'" if tasks_file else ""
     workdir_arg = f", workdir='{workdir}'" if workdir else ""
@@ -142,6 +244,8 @@ def generate_embedded_infer_script(
     slurm_config: Dict[str, Any],
     software_config: Dict[str, Any],
     workdir: Optional[str] = None,
+    batch_index: Optional[int] = None,
+    workflow_root: Optional[str] = None,
 ) -> str:
     """
     Generate Infer SLURM script with dynamic array size.
@@ -153,6 +257,8 @@ def generate_embedded_infer_script(
         slurm_config: SLURM configuration
         software_config: Software configuration
         workdir: Working directory (batch.00000/ for batch mode)
+        batch_index: Batch index (optional, will be parsed from workdir if not provided)
+        workflow_root: Workflow root directory (for batch mode)
 
     Returns:
         SLURM script content
@@ -174,6 +280,114 @@ def generate_embedded_infer_script(
     actual_array_size = min(array_size, num_groups)
     if actual_array_size < 1:
         actual_array_size = 1
+
+    use_batch_mode = batch_index is not None or workflow_root is not None
+
+    if use_batch_mode:
+        workflow_root_arg = workflow_root or workdir
+        return f"""#!/bin/bash
+#SBATCH --no-requeue
+#SBATCH --job-name={job_name}
+#SBATCH --array=1-{actual_array_size}
+#SBATCH --partition={partition}
+#SBATCH --nodes={nodes}
+#SBATCH --ntasks-per-node={ntasks}
+#SBATCH --cpus-per-task={cpus_per_task}
+#SBATCH --time={time_limit}
+
+{modules_section}
+{env_vars_section}
+
+export GROUP_INDEX=$SLURM_ARRAY_TASK_ID
+
+echo "[Infer] Starting at: $(date)"
+echo "[Infer] Running on: $(hostname)"
+echo "[Infer] Job ID: $SLURM_JOB_ID"
+echo "[Infer] Array ID: $SLURM_ARRAY_TASK_ID"
+echo "[Infer] Group Index: $GROUP_INDEX"
+
+{python_path} - <<'PYTHON_EOF'
+import os
+import sys
+import json
+import random
+
+{sys_path_line}
+
+from pathlib import Path
+from dlazy.path_resolver import BatchPathResolver
+from dlazy.commands import InferCommandExecutor
+from dlazy.record_utils import read_infer_tasks, append_calc_task
+from dlazy.utils import load_global_config_section
+
+def parse_batch_index(workdir):
+    import re
+    match = re.search(r'batch\.(\d+)', str(workdir))
+    return int(match.group(1)) if match else None
+
+def chunk_tasks(tasks, num_groups, random_seed=137):
+    random.seed(random_seed)
+    shuffled = tasks.copy()
+    random.shuffle(shuffled)
+    chunk_size = len(shuffled) // num_groups
+    if chunk_size == 0:
+        chunk_size = 1
+    chunks = []
+    for i in range(0, len(shuffled), chunk_size):
+        chunks.append(shuffled[i:i+chunk_size])
+    return chunks
+
+try:
+    workflow_root = Path('{workflow_root_arg}')
+    batch_index = {batch_index} if {batch_index} is not None else parse_batch_index('{workdir}')
+
+    if batch_index is None:
+        raise ValueError("batch_index is required for batch mode")
+
+    resolver = BatchPathResolver(workflow_root, batch_index)
+    config = load_global_config_section(Path('{config_path}'), '1infer')
+
+    group_index = int(os.environ['GROUP_INDEX'])
+    num_groups = config.get('num_groups', {num_groups})
+    random_seed = config.get('random_seed', 137)
+    model_dir = Path(config.get('model_dir', '/path/to/model'))
+    dataset_prefix = config.get('dataset_prefix', 'dataset')
+    parallel = config.get('parallel', 56)
+
+    infer_tasks_file = resolver.get_infer_tasks_file()
+    all_tasks = read_infer_tasks(infer_tasks_file)
+
+    groups = chunk_tasks(all_tasks, num_groups, random_seed)
+    if group_index - 1 >= len(groups):
+        print(f"[Infer] Group index {{group_index}} out of range ({{len(groups)}} groups)")
+        sys.exit(0)
+
+    group_tasks = groups[group_index - 1]
+    print(f"[Infer] Processing group {{group_index}} with {{len(group_tasks)}} tasks")
+
+    calc_tasks = InferCommandExecutor.execute_batch(
+        group_index,
+        group_tasks,
+        resolver,
+        config,
+        model_dir,
+        dataset_prefix,
+        parallel,
+    )
+
+    for calc_task in calc_tasks:
+        append_calc_task(resolver.get_calc_tasks_file(), calc_task)
+
+    print(f"[Infer] Complete: {{len(calc_tasks)}} calc tasks generated")
+except Exception as e:
+    print(f"[Infer] Error: {{e}}", file=sys.stderr)
+    import traceback
+    traceback.print_exc()
+    sys.exit(1)
+PYTHON_EOF
+
+echo "[Infer] Finished at: $(date)"
+"""
 
     workdir_arg = f", workdir='{workdir}'" if workdir else ""
 
@@ -231,6 +445,8 @@ def generate_embedded_calc_script(
     software_config: Dict[str, Any],
     tasks_file: Optional[str] = None,
     workdir: Optional[str] = None,
+    batch_index: Optional[int] = None,
+    workflow_root: Optional[str] = None,
 ) -> str:
     """
     Generate Calc SLURM script with dynamic batch_size.
@@ -243,6 +459,8 @@ def generate_embedded_calc_script(
         software_config: Software configuration
         tasks_file: Path to calc_tasks.jsonl (for batch mode)
         workdir: Working directory (batch.00000/ for batch mode)
+        batch_index: Batch index (optional, will be parsed from workdir if not provided)
+        workflow_root: Workflow root directory (for batch mode)
 
     Returns:
         SLURM script content
@@ -264,6 +482,94 @@ def generate_embedded_calc_script(
     actual_array_size = min(array_size, num_tasks)
     if actual_array_size < 1:
         actual_array_size = 1
+
+    use_batch_mode = batch_index is not None or workflow_root is not None
+
+    if use_batch_mode:
+        workflow_root_arg = workflow_root or workdir
+        return f"""#!/bin/bash
+#SBATCH --no-requeue
+#SBATCH --job-name={job_name}
+#SBATCH --array=1-{actual_array_size}
+#SBATCH --partition={partition}
+#SBATCH --nodes={nodes}
+#SBATCH --ntasks-per-node={ntasks}
+#SBATCH --time={time_limit}
+
+{modules_section}
+{env_vars_section}
+
+export BATCH_SIZE={batch_size}
+export START=$(( ($SLURM_ARRAY_TASK_ID - 1) * $BATCH_SIZE ))
+export END=$(( $SLURM_ARRAY_TASK_ID * $BATCH_SIZE ))
+
+echo "[Calc] Starting at: $(date)"
+echo "[Calc] Running on: $(hostname)"
+echo "[Calc] Job ID: $SLURM_JOB_ID"
+echo "[Calc] Array ID: $SLURM_ARRAY_TASK_ID"
+echo "[Calc] Processing: $START to $END (batch_size={batch_size})"
+
+{python_path} - <<'PYTHON_EOF'
+import os
+import sys
+import json
+
+{sys_path_line}
+
+from pathlib import Path
+from dlazy.path_resolver import BatchPathResolver
+from dlazy.commands import CalcCommandExecutor
+from dlazy.record_utils import read_calc_tasks
+from dlazy.utils import load_global_config_section
+
+def parse_batch_index(workdir):
+    import re
+    match = re.search(r'batch\.(\d+)', str(workdir))
+    return int(match.group(1)) if match else None
+
+try:
+    workflow_root = Path('{workflow_root_arg}')
+    batch_index = {batch_index} if {batch_index} is not None else parse_batch_index('{workdir}')
+
+    if batch_index is None:
+        raise ValueError("batch_index is required for batch mode")
+
+    resolver = BatchPathResolver(workflow_root, batch_index)
+    config = load_global_config_section(Path('{config_path}'), '2calc')
+
+    start = int(os.environ['START'])
+    end = int(os.environ['END'])
+
+    tasks_file = resolver.get_calc_tasks_file()
+    all_tasks = read_calc_tasks(tasks_file)
+    tasks = all_tasks[start:end]
+
+    print(f"[Calc] Processing {{len(tasks)}} tasks ({{start}}:{{end}})")
+
+    success = 0
+    failed = 0
+    for task_index, task in enumerate(tasks, start=start):
+        try:
+            status, label = CalcCommandExecutor.execute_batch(task_index, task, resolver, config)
+            if status == 'success':
+                success += 1
+            else:
+                failed += 1
+                print(f"[Calc] Task {{task_index}} failed: {{label}}")
+        except Exception as e:
+            failed += 1
+            print(f"[Calc] Task {{task_index}} exception: {{e}}")
+
+    print(f"[Calc] Complete: success={{success}}, failed={{failed}}")
+except Exception as e:
+    print(f"[Calc] Error: {{e}}", file=sys.stderr)
+    import traceback
+    traceback.print_exc()
+    sys.exit(1)
+PYTHON_EOF
+
+echo "[Calc] Finished at: $(date)"
+"""
 
     stru_log_arg = f", stru_log='{tasks_file}'" if tasks_file else ""
     workdir_arg = f", workdir='{workdir}'" if workdir else ""
@@ -326,6 +632,8 @@ def generate_submit_script(
     num_tasks: Optional[int] = None,
     tasks_file: Optional[str] = None,
     workdir: Optional[str] = None,
+    batch_index: Optional[int] = None,
+    workflow_root: Optional[str] = None,
 ) -> Path:
     """
     Generate SLURM submit script with dynamic batch_size.
@@ -340,6 +648,8 @@ def generate_submit_script(
         num_tasks: Number of tasks (for dynamic batch_size calculation)
         tasks_file: Path to tasks file (olp_tasks.jsonl or calc_tasks.jsonl)
         workdir: Working directory (batch.00000/ for batch mode)
+        batch_index: Batch index (optional, will be parsed from workdir if not provided)
+        workflow_root: Workflow root directory (for batch mode)
 
     Returns:
         Path to generated script
@@ -355,6 +665,8 @@ def generate_submit_script(
             software_config=software_config,
             tasks_file=tasks_file,
             workdir=workdir,
+            batch_index=batch_index,
+            workflow_root=workflow_root,
         )
     elif stage_name == "1infer":
         num_groups = stage_config.get("num_groups", num_tasks or 10)
@@ -365,6 +677,8 @@ def generate_submit_script(
             slurm_config=slurm_config,
             software_config=software_config,
             workdir=workdir,
+            batch_index=batch_index,
+            workflow_root=workflow_root,
         )
     elif stage_name == "2calc":
         content = generate_embedded_calc_script(
@@ -375,6 +689,8 @@ def generate_submit_script(
             software_config=software_config,
             tasks_file=tasks_file,
             workdir=workdir,
+            batch_index=batch_index,
+            workflow_root=workflow_root,
         )
     else:
         raise ValueError(f"Unknown stage: {stage_name}")
