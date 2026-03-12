@@ -177,7 +177,50 @@ def cmd_batch_status(args):
         BATCH_PID_FILE,
         BATCH_STAGES,
         MONITOR_STATE_FILE,
+        BATCH_DIR_PREFIX,
+        TASK_DIR_PREFIX,
     )
+
+    def count_lines(file_path):
+        if not file_path.exists():
+            return 0
+        with open(file_path, "r") as f:
+            return sum(1 for _ in f)
+
+    def count_dirs(dir_path, prefix="task."):
+        if not dir_path.exists():
+            return 0
+        return len(
+            [d for d in dir_path.iterdir() if d.is_dir() and d.name.startswith(prefix)]
+        )
+
+    def progress_bar(completed, total, width=20):
+        if total == 0:
+            return "░" * width
+        pct = completed / total
+        filled = int(width * pct)
+        return "█" * filled + "░" * (width - filled)
+
+    def get_batch_progress(workdir, batch_index):
+        batch_dir = workdir / f"{BATCH_DIR_PREFIX}.{batch_index:05d}"
+
+        olp_total = count_lines(batch_dir / "slurm_olp" / "olp_tasks.jsonl")
+        olp_done = count_dirs(batch_dir / "output_olp", "task.")
+
+        infer_total = olp_done
+        infer_done = count_lines(batch_dir / "slurm_infer" / "infer_tasks.jsonl")
+
+        calc_total = infer_done
+        calc_done = count_lines(batch_dir / "slurm_calc" / "calc_tasks.jsonl")
+
+        error_done = count_lines(batch_dir / "error_tasks.jsonl")
+
+        return {
+            "olp": {"total": olp_total, "done": olp_done},
+            "infer": {"total": infer_total, "done": infer_done},
+            "calc": {"total": calc_total, "done": calc_done},
+            "error": error_done,
+        }
 
     config_path = Path(args.config).resolve()
     workdir = Path(args.workdir).resolve() if args.workdir else config_path.parent
@@ -187,14 +230,17 @@ def cmd_batch_status(args):
     pid_file = workdir / BATCH_PID_FILE
     if not pid_file.exists():
         print("进程状态: 未运行\n")
+        running = False
     else:
         try:
             with open(pid_file, "r") as f:
                 pid = int(f.read().strip())
             os.kill(pid, 0)
             print(f"进程状态: 运行中 (PID: {pid})\n")
+            running = True
         except (ValueError, OSError):
             print("进程状态: 已停止\n")
+            running = False
 
     state_file = workdir / BATCH_STATE_FILE
     if not state_file.exists():
@@ -204,28 +250,63 @@ def cmd_batch_status(args):
     with open(state_file, "r", encoding="utf-8") as f:
         state = json.load(f)
 
-    print(f"初始化: {'是' if state.get('initialized') else '否'}")
-    print(f"当前批次: {state.get('current_batch', 0)}")
-    print(f"总批次数: {state.get('total_batches', 'N/A')}")
-    print(f"已完成批次: {len(state.get('completed_batches', []))}")
-
+    total_batches = state.get("total_batches", 0)
+    completed_batches = len(state.get("completed_batches", []))
+    current_batch = state.get("current_batch", 0)
     current_stage = state.get("current_stage", "olp")
-    print(f"当前阶段: {current_stage}")
+    initialized = state.get("initialized", False)
 
-    for stage in BATCH_STAGES:
-        stage_key = f"{stage}_completed"
-        status = (
-            "✓ 完成"
-            if state.get(stage_key)
-            else ("进行中..." if stage == current_stage else "待执行")
-        )
-        print(f"  {stage}: {status}")
+    if not initialized:
+        print("状态: 未初始化")
+        return
+
+    total_tasks = 0
+    total_olp_done = 0
+    total_infer_done = 0
+    total_calc_done = 0
+    total_errors = 0
+
+    for batch_idx in range(total_batches):
+        progress = get_batch_progress(workdir, batch_idx)
+        total_tasks += progress["olp"]["total"]
+        total_olp_done += progress["olp"]["done"]
+        total_infer_done += progress["infer"]["done"]
+        total_calc_done += progress["calc"]["done"]
+        total_errors += progress["error"]
+
+    print(f"总任务数: {total_tasks} | 批次: {completed_batches}/{total_batches} 完成")
+    print()
+    print("┌" + "─" * 50 + "┐")
+    print("│ 阶段  │ 完成/总数   │ 进度                      │")
+    print("├" + "─" * 50 + "┤")
+    print(
+        f"│ olp   │ {total_olp_done:4d}/{total_tasks:4d}    │ {progress_bar(total_olp_done, total_tasks)} {100 * total_olp_done / max(total_tasks, 1):5.1f}% │"
+    )
+    print(
+        f"│ infer │ {total_infer_done:4d}/{total_tasks:4d}    │ {progress_bar(total_infer_done, total_tasks)} {100 * total_infer_done / max(total_tasks, 1):5.1f}% │"
+    )
+    print(
+        f"│ calc  │ {total_calc_done:4d}/{total_tasks:4d}    │ {progress_bar(total_calc_done, total_tasks)} {100 * total_calc_done / max(total_tasks, 1):5.1f}% │"
+    )
+    print("└" + "─" * 50 + "┘")
+
+    if total_errors > 0:
+        print(f"\n⚠ 错误任务: {total_errors} 个")
+
+    if current_batch < total_batches:
+        print(f"\n当前批次: batch.{current_batch:05d} ({current_stage} 阶段)")
+        progress = get_batch_progress(workdir, current_batch)
+        batch_total = progress["olp"]["total"]
+        if batch_total > 0:
+            print(f"  OLP:   {progress['olp']['done']:3d}/{batch_total:3d}")
+            print(f"  Infer: {progress['infer']['done']:3d}/{batch_total:3d}")
+            print(f"  Calc:  {progress['calc']['done']:3d}/{batch_total:3d}")
 
     if state.get("current_job_id"):
         print(f"\n当前作业: {state.get('current_job_id')}")
 
     if state.get("last_update"):
-        print(f"\n最后更新: {state.get('last_update')}")
+        print(f"最后更新: {state.get('last_update')}")
 
     monitor_file = workdir / MONITOR_STATE_FILE
     if monitor_file.exists():
@@ -234,14 +315,14 @@ def cmd_batch_status(args):
 
         errors = monitor_state.get("errors", [])
         if errors:
-            print(f"\n错误记录: {len(errors)} 条")
-            for err in errors[-5:]:
+            print(f"\n错误记录: {len(errors)} 条 (最近 3 条)")
+            for err in errors[-3:]:
                 print(
                     f"  - [{err.get('stage')}] {err.get('failure_type')}: {err.get('message')}"
                 )
 
         if monitor_state.get("abort_flag"):
-            print(f"\n中断原因: {monitor_state.get('abort_reason', '未知')}")
+            print(f"\n⛔ 中断原因: {monitor_state.get('abort_reason', '未知')}")
 
 
 def cmd_batch_stop(args):
