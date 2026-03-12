@@ -119,6 +119,7 @@ DEFAULT_MAX_RETRIES = {
 }
 
 MONITOR_STATE_FILE = "monitor_state.json"
+PROGRESS_FILE = "progress"
 
 # ============================================
 # Batch PID and Log Files

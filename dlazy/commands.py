@@ -43,6 +43,7 @@ from .constants import (
     ERROR_TASKS_FILE,
     TASK_DIR_PREFIX,
     TASK_PADDING,
+    PROGRESS_FILE,
 )
 from .record_utils import (
     OlpTask,
@@ -240,6 +241,15 @@ class OLPCommandExecutor:
         task_dir = resolver.get_olp_task_dir(task_index)
         ensure_directory(task_dir)
 
+        label = Path(task.path).name
+        progress_file = resolver.get_olp_slurm_dir() / PROGRESS_FILE
+
+        def write_progress(msg):
+            with open(progress_file, "a", encoding="utf-8") as f:
+                f.write(f"{label} {msg}\n")
+
+        write_progress("start")
+
         try:
             env = os.environ.copy()
 
@@ -272,6 +282,8 @@ class OLPCommandExecutor:
 
             logger.info("OLP completed: %s", task_dir)
 
+            write_progress("end")
+
             return InferTask(
                 path=task.path,
                 scf_path=str(task_dir),
@@ -279,6 +291,7 @@ class OLPCommandExecutor:
 
         except Exception as e:
             logger.error("OLP failed: %s", e)
+            write_progress("error")
             raise
 
 
@@ -613,6 +626,12 @@ class InferCommandExecutor:
         group_dir = resolver.get_infer_group_dir(group_index)
         ensure_directory(group_dir)
 
+        progress_file = resolver.get_infer_slurm_dir() / PROGRESS_FILE
+
+        def write_progress(label, msg):
+            with open(progress_file, "a", encoding="utf-8") as f:
+                f.write(f"{label} {msg}\n")
+
         inputs_geth_dir = group_dir / INPUTS_SUBDIR / GETH_SUBDIR
         outputs_dir = group_dir / OUTPUTS_SUBDIR
         final_geth_dir = group_dir / GETH_SUBDIR
@@ -625,6 +644,9 @@ class InferCommandExecutor:
             for i, infer_task in enumerate(infer_tasks):
                 task_dirname = f"{TASK_DIR_PREFIX}.{i:0{TASK_PADDING}d}"
                 target_task_dir = inputs_geth_dir / task_dirname
+
+                label = Path(infer_task.path).name
+                write_progress(label, "start")
 
                 olp_dir = Path(infer_task.scf_path)
 
@@ -869,6 +891,13 @@ class CalcCommandExecutor:
         ensure_directory(geth_dir)
 
         label = Path(task.path).name
+        progress_file = resolver.get_calc_slurm_dir() / PROGRESS_FILE
+
+        def write_progress(msg):
+            with open(progress_file, "a", encoding="utf-8") as f:
+                f.write(f"{label} {msg}\n")
+
+        write_progress("start")
 
         try:
             env = os.environ.copy()
@@ -916,6 +945,7 @@ class CalcCommandExecutor:
             if "False" in result.stdout:
                 error_type = "scferror" if "scferror" in result.stdout else "sluerror"
                 logger.error("SCF not converged: %s", error_type)
+                write_progress("error")
                 return ("failed", label)
 
             os.chdir(geth_dir)
@@ -929,11 +959,14 @@ class CalcCommandExecutor:
 
             if not ok:
                 logger.error("Hamiltonian validation failed: %s", message)
+                write_progress("error")
                 return ("failed", label)
 
             logger.info("Calc completed: %s", geth_dir)
+            write_progress("end")
             return ("success", label)
 
         except Exception as e:
             logger.error("Calc failed: %s", e)
+            write_progress("error")
             return ("failed", label)

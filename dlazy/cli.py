@@ -179,6 +179,7 @@ def cmd_batch_status(args):
         MONITOR_STATE_FILE,
         BATCH_DIR_PREFIX,
         TASK_DIR_PREFIX,
+        PROGRESS_FILE,
     )
 
     def count_lines(file_path):
@@ -187,12 +188,41 @@ def cmd_batch_status(args):
         with open(file_path, "r") as f:
             return sum(1 for _ in f)
 
+    def count_progress_ends(progress_file):
+        """统计 progress 文件中的 end 行数"""
+        if not progress_file.exists():
+            return 0
+        count = 0
+        with open(progress_file, "r") as f:
+            for line in f:
+                if line.strip().endswith(" end"):
+                    count += 1
+        return count
+
     def count_dirs(dir_path, prefix="task."):
         if not dir_path.exists():
             return 0
         return len(
             [d for d in dir_path.iterdir() if d.is_dir() and d.name.startswith(prefix)]
         )
+
+    def count_infer_outputs(infer_dir):
+        """统计 infer 实际完成的任务数（geth/task.XXX 目录数）"""
+        if not infer_dir.exists():
+            return 0
+        count = 0
+        for group_dir in infer_dir.iterdir():
+            if group_dir.is_dir() and group_dir.name.startswith("g."):
+                geth_dir = group_dir / "geth"
+                if geth_dir.exists():
+                    count += count_dirs(geth_dir, "task.")
+        return count
+
+    def count_calc_outputs(calc_dir):
+        """统计 calc 实际完成的任务数"""
+        if not calc_dir.exists():
+            return 0
+        return count_dirs(calc_dir, "task.")
 
     def progress_bar(completed, total, width=20):
         if total == 0:
@@ -205,13 +235,13 @@ def cmd_batch_status(args):
         batch_dir = workdir / f"{BATCH_DIR_PREFIX}.{batch_index:05d}"
 
         olp_total = count_lines(batch_dir / "slurm_olp" / "olp_tasks.jsonl")
-        olp_done = count_dirs(batch_dir / "output_olp", "task.")
+        olp_done = count_progress_ends(batch_dir / "slurm_olp" / PROGRESS_FILE)
 
         infer_total = olp_done
-        infer_done = count_lines(batch_dir / "slurm_infer" / "infer_tasks.jsonl")
+        infer_done = count_progress_ends(batch_dir / "slurm_infer" / PROGRESS_FILE)
 
         calc_total = infer_done
-        calc_done = count_lines(batch_dir / "slurm_calc" / "calc_tasks.jsonl")
+        calc_done = count_progress_ends(batch_dir / "slurm_calc" / PROGRESS_FILE)
 
         error_done = count_lines(batch_dir / "error_tasks.jsonl")
 
