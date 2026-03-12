@@ -70,7 +70,7 @@ software:
   model_dir: "${HOME}/model/Alex-2M-finetune-1stbatch_4090/model"
   commands:
     transform: "{python_deeph}/{deeph_transform} -p {parallel} -t 2 {input_dir} {output_dir}"
-    transform_reverse: "{python_deeph}/{deeph_transform} -p {parallel} --backward -t 2 {output_dir} {input_dir}"
+    transform_reverse: "{python_deeph}/{deeph_transform} -p {parallel} --backward -t 2 {input_dir} {output_dir}"
     infer: "{python_deeph}/{deeph_infer} {config_path}"
   
   # SLURM 提交配置

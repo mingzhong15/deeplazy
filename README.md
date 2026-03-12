@@ -112,6 +112,12 @@ See `examples/demo-workflow/global_config.yaml` for an example configuration fil
 
 ## Changelog
 
+### v2.9.2 (2026-03-12)
+
+**Config Fix:**
+- Fixed `transform_reverse` command parameter order in `global_config.yaml` example
+- Correct order for `--backward` mode: `{input_dir}` (new format) before `{output_dir}` (old format)
+
 ### v2.9.1 (2026-03-12)
 
 **Infer Stage Fix:**
