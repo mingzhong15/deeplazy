@@ -95,6 +95,15 @@ class BatchScheduler(WorkflowBase):
             return
         ensure_directory(self.ctx.state_file.parent)
         state["last_update"] = datetime.now().isoformat()
+
+        if "batch_times" not in state:
+            state["batch_times"] = {}
+
+        batch_idx = state.get("current_batch", 0)
+        batch_key = str(batch_idx)
+        if batch_key not in state["batch_times"]:
+            state["batch_times"][batch_key] = {"start": datetime.now().isoformat()}
+
         with open(self.ctx.state_file, "w", encoding="utf-8") as f:
             json.dump(state, f, indent=2)
 
@@ -504,6 +513,13 @@ class BatchScheduler(WorkflowBase):
                 if failed_tasks:
                     next_resolver = resolver.get_next_batch_resolver()
                     self._forward_failed_tasks(failed_tasks, next_resolver)
+
+                batch_key = str(batch_index)
+                if "batch_times" not in self.state:
+                    self.state["batch_times"] = {}
+                if batch_key not in self.state["batch_times"]:
+                    self.state["batch_times"][batch_key] = {}
+                self.state["batch_times"][batch_key]["end"] = datetime.now().isoformat()
 
                 self.state["completed_batches"].append(batch_index)
                 self.state["current_batch"] = batch_index + 1

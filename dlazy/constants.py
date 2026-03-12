@@ -61,6 +61,7 @@ OLP_TASKS_FILE = "olp_tasks.jsonl"
 INFER_TASKS_FILE = "infer_tasks.jsonl"
 CALC_TASKS_FILE = "calc_tasks.jsonl"
 ERROR_TASKS_FILE = "error_tasks.jsonl"
+PERMANENT_ERRORS_FILE = "permanent_errors.jsonl"
 
 # Stage to tasks file mapping (for batch mode SLURM scripts)
 STAGE_TASKS_FILE_MAP = {

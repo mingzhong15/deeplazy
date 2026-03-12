@@ -182,6 +182,7 @@ def cmd_batch_status(args):
         PROGRESS_FILE,
         SLURM_SUBDIR_TEMPLATE,
         ERROR_TASKS_FILE,
+        PERMANENT_ERRORS_FILE,
     )
 
     def count_lines(file_path):
@@ -219,33 +220,117 @@ def cmd_batch_status(args):
             total += count_lines(error_file)
         return total
 
+    def get_total_tasks_from_todo(workdir):
+        """从 todo_list.json 获取原始总任务数"""
+        todo_file = workdir / "todo_list.json"
+        return count_lines(todo_file)
+
+    def count_progress_errors(progress_file):
+        """统计 progress 文件中的 error 行数"""
+        if not progress_file.exists():
+            return 0
+        count = 0
+        with open(progress_file, "r") as f:
+            for line in f:
+                if line.strip().endswith(" error"):
+                    count += 1
+        return count
+
+    def get_batch_detailed_status(workdir, batch_index, completed_batches, batch_times):
+        """获取单个批次的详细状态"""
+        from datetime import datetime
+
+        batch_dir = workdir / f"{BATCH_DIR_PREFIX}.{batch_index:05d}"
+
+        if not batch_dir.exists():
+            return {
+                "total": 0,
+                "olp_done": 0,
+                "infer_done": 0,
+                "calc_done": 0,
+                "errors": 0,
+                "status": "pending",
+                "start_time": None,
+                "end_time": None,
+            }
+
+        olp_total = count_lines(batch_dir / "slurm_olp" / "olp_tasks.jsonl")
+        olp_done = count_progress_ends(batch_dir / "slurm_olp" / PROGRESS_FILE)
+        infer_done = count_progress_ends(batch_dir / "slurm_infer" / PROGRESS_FILE)
+        calc_done = count_progress_ends(batch_dir / "slurm_calc" / PROGRESS_FILE)
+        errors = count_total_errors(workdir, batch_index)
+
+        if batch_index in completed_batches:
+            status = "completed"
+        elif olp_total > 0:
+            status = "running"
+        else:
+            status = "pending"
+
+        time_info = batch_times.get(str(batch_index), {})
+
+        return {
+            "total": olp_total,
+            "olp_done": olp_done,
+            "infer_done": infer_done,
+            "calc_done": calc_done,
+            "errors": errors,
+            "status": status,
+            "start_time": time_info.get("start"),
+            "end_time": time_info.get("end"),
+        }
+
+    def format_time_display(start_time, end_time, status):
+        """格式化时间显示: MM-DD HH:MM-HH:MM"""
+        from datetime import datetime
+
+        if status == "pending":
+            return "-"
+
+        start_str = ""
+        end_str = "-"
+
+        if start_time:
+            try:
+                dt = datetime.fromisoformat(start_time)
+                start_str = dt.strftime("%m-%d %H:%M")
+            except:
+                start_str = "-"
+
+        if end_time:
+            try:
+                dt = datetime.fromisoformat(end_time)
+                end_str = dt.strftime("%H:%M")
+            except:
+                end_str = "-"
+
+        return f"{start_str}-{end_str}"
+
+    def get_permanent_errors(workdir):
+        """获取永久失败任务列表"""
+        perm_file = workdir / PERMANENT_ERRORS_FILE
+        if not perm_file.exists():
+            return []
+        errors = []
+        with open(perm_file, "r") as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    try:
+                        import json
+
+                        data = json.loads(line)
+                        errors.append(data.get("path", "unknown"))
+                    except:
+                        pass
+        return errors
+
     def progress_bar(completed, total, width=20):
         if total == 0:
             return "░" * width
         pct = completed / total
         filled = int(width * pct)
         return "█" * filled + "░" * (width - filled)
-
-    def get_batch_progress(workdir, batch_index):
-        batch_dir = workdir / f"{BATCH_DIR_PREFIX}.{batch_index:05d}"
-
-        olp_total = count_lines(batch_dir / "slurm_olp" / "olp_tasks.jsonl")
-        olp_done = count_progress_ends(batch_dir / "slurm_olp" / PROGRESS_FILE)
-
-        infer_total = olp_done
-        infer_done = count_progress_ends(batch_dir / "slurm_infer" / PROGRESS_FILE)
-
-        calc_total = infer_done
-        calc_done = count_progress_ends(batch_dir / "slurm_calc" / PROGRESS_FILE)
-
-        error_done = count_total_errors(workdir, batch_index)
-
-        return {
-            "olp": {"total": olp_total, "done": olp_done},
-            "infer": {"total": infer_total, "done": infer_done},
-            "calc": {"total": calc_total, "done": calc_done},
-            "error": error_done,
-        }
 
     config_path = Path(args.config).resolve()
     workdir = Path(args.workdir).resolve() if args.workdir else config_path.parent
@@ -285,69 +370,199 @@ def cmd_batch_status(args):
         print("状态: 未初始化")
         return
 
-    total_tasks = 0
+    total_original_tasks = get_total_tasks_from_todo(workdir)
+    batch_times = state.get("batch_times", {})
+    completed_batch_indices = set(state.get("completed_batches", []))
+
+    batch_statuses = []
+    total_processed = 0
     total_olp_done = 0
     total_infer_done = 0
     total_calc_done = 0
     total_errors = 0
+    total_olp_errors = 0
+    total_infer_errors = 0
+    total_calc_errors = 0
 
     for batch_idx in range(total_batches):
-        progress = get_batch_progress(workdir, batch_idx)
-        total_tasks += progress["olp"]["total"]
-        total_olp_done += progress["olp"]["done"]
-        total_infer_done += progress["infer"]["done"]
-        total_calc_done += progress["calc"]["done"]
-        total_errors += progress["error"]
+        batch_status = get_batch_detailed_status(
+            workdir, batch_idx, completed_batch_indices, batch_times
+        )
+        batch_statuses.append(batch_status)
+        total_processed += batch_status["total"]
+        total_olp_done += batch_status["olp_done"]
+        total_infer_done += batch_status["infer_done"]
+        total_calc_done += batch_status["calc_done"]
+        total_errors += batch_status["errors"]
 
-    print(f"总任务数: {total_tasks} | 批次: {completed_batches}/{total_batches} 完成")
+        batch_dir = workdir / f"{BATCH_DIR_PREFIX}.{batch_idx:05d}"
+        total_olp_errors += count_progress_errors(
+            batch_dir / "slurm_olp" / PROGRESS_FILE
+        )
+        total_infer_errors += count_progress_errors(
+            batch_dir / "slurm_infer" / PROGRESS_FILE
+        )
+        total_calc_errors += count_progress_errors(
+            batch_dir / "slurm_calc" / PROGRESS_FILE
+        )
+
+    permanent_errors = get_permanent_errors(workdir)
+    total_permanent_errors = len(permanent_errors)
+    retrying_tasks = total_errors - total_permanent_errors
+    success_tasks = total_calc_done
+
     print()
-    print("┌" + "─" * 50 + "┐")
-    print("│ 阶段  │ 完成/总数   │ 进度                      │")
-    print("├" + "─" * 50 + "┤")
+    print("━" * 54)
+    print("                      总体进度")
+    print("━" * 54)
     print(
-        f"│ olp   │ {total_olp_done:4d}/{total_tasks:4d}    │ {progress_bar(total_olp_done, total_tasks)} {100 * total_olp_done / max(total_tasks, 1):5.1f}% │"
+        f"原始任务: {total_original_tasks} (todo_list.json)"
+        if total_original_tasks > 0
+        else "原始任务: -"
+    )
+    processed_str = f"已处理:   {total_processed} (含重试)"
+    if total_processed > 0:
+        print(
+            f"{processed_str} | 成功: {success_tasks} | 重试中: {retrying_tasks} | 永久失败: {total_permanent_errors}"
+        )
+    else:
+        print(processed_str)
+    print()
+    print("┌" + "─" * 52 + "┐")
+    print("│ 阶段  │ 完成  │ 成功  │ 失败  │ 进度                 │")
+    print("├" + "─" * 52 + "┤")
+
+    olp_success = (
+        total_olp_done - total_olp_errors
+        if total_olp_done >= total_olp_errors
+        else total_olp_done
+    )
+    infer_success = (
+        total_infer_done - total_infer_errors
+        if total_infer_done >= total_infer_errors
+        else total_infer_done
+    )
+    calc_success = (
+        total_calc_done - total_calc_errors
+        if total_calc_done >= total_calc_errors
+        else total_calc_done
+    )
+
+    total_for_progress = (
+        total_original_tasks if total_original_tasks > 0 else total_processed
+    )
+
+    print(
+        f"│ olp   │ {total_olp_done:5d} │ {olp_success:5d} │ {total_olp_errors:5d} │ {progress_bar(total_olp_done, total_for_progress)} │"
     )
     print(
-        f"│ infer │ {total_infer_done:4d}/{total_tasks:4d}    │ {progress_bar(total_infer_done, total_tasks)} {100 * total_infer_done / max(total_tasks, 1):5.1f}% │"
+        f"│ infer │ {total_infer_done:5d} │ {infer_success:5d} │ {total_infer_errors:5d} │ {progress_bar(total_infer_done, total_for_progress)} │"
     )
     print(
-        f"│ calc  │ {total_calc_done:4d}/{total_tasks:4d}    │ {progress_bar(total_calc_done, total_tasks)} {100 * total_calc_done / max(total_tasks, 1):5.1f}% │"
+        f"│ calc  │ {total_calc_done:5d} │ {calc_success:5d} │ {total_calc_errors:5d} │ {progress_bar(total_calc_done, total_for_progress)} │"
     )
-    print("└" + "─" * 50 + "┘")
+    print("└" + "─" * 52 + "┘")
 
-    if total_errors > 0:
-        print(f"\n⚠ 错误任务: {total_errors} 个")
+    print()
+    print("━" * 54)
+    print("                    各批次详情")
+    print("━" * 54)
+    header = f"{'批次':<12} {'任务':>5}  {'OLP':>6}  {'Infer':>6}  {'Calc':>6}  {'错误':>4}  {'状态':<6}  {'时间':<18}"
+    print(header)
+    print("─" * 54)
 
-    if current_batch < total_batches:
-        print(f"\n当前批次: batch.{current_batch:05d} ({current_stage} 阶段)")
-        progress = get_batch_progress(workdir, current_batch)
-        batch_total = progress["olp"]["total"]
-        if batch_total > 0:
-            print(f"  OLP:   {progress['olp']['done']:3d}/{batch_total:3d}")
-            print(f"  Infer: {progress['infer']['done']:3d}/{batch_total:3d}")
-            print(f"  Calc:  {progress['calc']['done']:3d}/{batch_total:3d}")
+    for batch_idx, batch_status in enumerate(batch_statuses):
+        batch_name = f"batch.{batch_idx:05d}"
+        total = batch_status["total"]
+        olp = batch_status["olp_done"]
+        infer = batch_status["infer_done"]
+        calc = batch_status["calc_done"]
+        errors = batch_status["errors"]
+        status = batch_status["status"]
+        time_str = format_time_display(
+            batch_status["start_time"], batch_status["end_time"], status
+        )
 
-    if state.get("current_job_id"):
-        print(f"\n当前作业: {state.get('current_job_id')}")
+        if status == "completed":
+            status_icon = "✓"
+            if errors > 0:
+                status_display = "有错误"
+            else:
+                status_display = "完成"
+        elif status == "running":
+            status_icon = "○"
+            status_display = "进行中"
+        else:
+            status_icon = "-"
+            status_display = "待处理"
 
-    if state.get("last_update"):
+        def format_stage_count(done, total, icon):
+            if total == 0:
+                return f"{done:>4}{icon}"
+            return f"{done:>4}{icon}"
+
+        olp_str = format_stage_count(
+            olp,
+            total,
+            status_icon
+            if status == "completed"
+            else ("○" if status == "running" else "-"),
+        )
+        infer_str = format_stage_count(
+            infer,
+            total,
+            status_icon
+            if status == "completed"
+            else ("○" if status == "running" else "-"),
+        )
+        calc_str = format_stage_count(
+            calc,
+            total,
+            status_icon
+            if status == "completed"
+            else ("○" if status == "running" else "-"),
+        )
+
+        print(
+            f"{batch_name:<12} {total:>5}  {olp_str:>6}  {infer_str:>6}  {calc_str:>6}  {errors:>4}  {status_display:<6}  {time_str:<18}"
+        )
+
+    print()
+    current_job_id = state.get("current_job_id")
+    if current_job_id:
+        print(
+            f"当前作业: {current_job_id} | 阶段: {current_stage} | 最后更新: {state.get('last_update', '-')}"
+        )
+    elif state.get("last_update"):
         print(f"最后更新: {state.get('last_update')}")
+    else:
+        print()
+
+    if total_permanent_errors > 0:
+        print()
+        print(f"⚠ 永久失败任务: {total_permanent_errors} 个 (重试3次后仍失败)")
+        for i, err_path in enumerate(permanent_errors[:5]):
+            print(f"  - {err_path}")
+        if total_permanent_errors > 5:
+            print(f"  ... (共 {total_permanent_errors} 个)")
 
     monitor_file = workdir / MONITOR_STATE_FILE
     if monitor_file.exists():
         with open(monitor_file, "r", encoding="utf-8") as f:
             monitor_state = json.load(f)
 
-        errors = monitor_state.get("errors", [])
-        if errors:
-            print(f"\n错误记录: {len(errors)} 条 (最近 3 条)")
-            for err in errors[-3:]:
+        errors_list = monitor_state.get("errors", [])
+        if errors_list:
+            print()
+            print(f"错误记录: {len(errors_list)} 条 (最近 3 条)")
+            for err in errors_list[-3:]:
                 print(
                     f"  - [{err.get('stage')}] {err.get('failure_type')}: {err.get('message')}"
                 )
 
         if monitor_state.get("abort_flag"):
-            print(f"\n⛔ 中断原因: {monitor_state.get('abort_reason', '未知')}")
+            print()
+            print(f"⛔ 中断原因: {monitor_state.get('abort_reason', '未知')}")
 
 
 def cmd_batch_stop(args):

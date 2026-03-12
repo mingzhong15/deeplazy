@@ -133,6 +133,24 @@ See `examples/demo-workflow/global_config.yaml` for an example configuration fil
 
 ## Changelog
 
+### v2.9.5 (2026-03-13)
+
+**Bug Fixes:**
+- Fixed Infer stage progress: removed duplicate "end" loop, added error tracking
+- Unified progress label format: now uses absolute paths across OLP/Infer/Calc stages
+
+**Enhancements:**
+- Added batch time tracking: records start/end time for each batch
+- Enhanced `batch-status` output:
+  - Shows original tasks count from todo_list.json
+  - Displays per-batch detailed status table
+  - Shows success/failure/retry/permanent-failure statistics
+  - Displays permanent failed tasks (exceeded max retries)
+- Added `PERMANENT_ERRORS_FILE` constant for tracking failed tasks
+
+**Constants:**
+- `PERMANENT_ERRORS_FILE = "permanent_errors.jsonl"` - stores tasks that exceeded max retry count
+
 ### v2.9.4 (2026-03-13)
 
 **Bug Fixes:**

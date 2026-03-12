@@ -241,7 +241,7 @@ class OLPCommandExecutor:
         task_dir = resolver.get_olp_task_dir(task_index)
         ensure_directory(task_dir)
 
-        label = Path(task.path).name
+        label = task.path
         progress_file = resolver.get_olp_slurm_dir() / PROGRESS_FILE
 
         def write_progress(msg):
@@ -645,7 +645,7 @@ class InferCommandExecutor:
                 task_dirname = f"{TASK_DIR_PREFIX}.{i:0{TASK_PADDING}d}"
                 target_task_dir = inputs_geth_dir / task_dirname
 
-                label = Path(infer_task.path).name
+                label = infer_task.path
                 write_progress(label, "start")
 
                 olp_dir = Path(infer_task.scf_path)
@@ -765,11 +765,7 @@ class InferCommandExecutor:
                 )
 
             for i, infer_task in enumerate(infer_tasks):
-                label = Path(infer_task.path).name
-                write_progress(label, "end")
-
-            for i, infer_task in enumerate(infer_tasks):
-                label = Path(infer_task.path).name
+                label = infer_task.path
                 write_progress(label, "end")
 
             logger.info("Infer completed for group %d", group_index)
@@ -777,6 +773,9 @@ class InferCommandExecutor:
 
         except Exception as e:
             logger.error("Infer failed: %s", e)
+            for infer_task in infer_tasks:
+                label = infer_task.path
+                write_progress(label, "error")
             raise
 
 
@@ -905,7 +904,7 @@ class CalcCommandExecutor:
         ensure_directory(scf_dir)
         ensure_directory(geth_dir)
 
-        label = Path(task.path).name
+        label = task.path
         progress_file = resolver.get_calc_slurm_dir() / PROGRESS_FILE
 
         def write_progress(msg):
