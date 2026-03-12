@@ -14,6 +14,7 @@ from .exceptions import (
     FailureType,
     AbortException,
 )
+from .path_resolver import PathResolver, RunPathResolver, BatchPathResolver
 
 __version__ = "2.4.0"
 __all__ = [
@@ -32,4 +33,7 @@ __all__ = [
     "HamiltonianNotFoundError",
     "FailureType",
     "AbortException",
+    "PathResolver",
+    "RunPathResolver",
+    "BatchPathResolver",
 ]
