@@ -180,6 +180,8 @@ def cmd_batch_status(args):
         BATCH_DIR_PREFIX,
         TASK_DIR_PREFIX,
         PROGRESS_FILE,
+        SLURM_SUBDIR_TEMPLATE,
+        ERROR_TASKS_FILE,
     )
 
     def count_lines(file_path):
@@ -206,23 +208,16 @@ def cmd_batch_status(args):
             [d for d in dir_path.iterdir() if d.is_dir() and d.name.startswith(prefix)]
         )
 
-    def count_infer_outputs(infer_dir):
-        """统计 infer 实际完成的任务数（geth/task.XXX 目录数）"""
-        if not infer_dir.exists():
-            return 0
-        count = 0
-        for group_dir in infer_dir.iterdir():
-            if group_dir.is_dir() and group_dir.name.startswith("g."):
-                geth_dir = group_dir / "geth"
-                if geth_dir.exists():
-                    count += count_dirs(geth_dir, "task.")
-        return count
-
-    def count_calc_outputs(calc_dir):
-        """统计 calc 实际完成的任务数"""
-        if not calc_dir.exists():
-            return 0
-        return count_dirs(calc_dir, "task.")
+    def count_total_errors(workdir, batch_index):
+        """统计所有阶段的错误任务数"""
+        batch_dir = workdir / f"{BATCH_DIR_PREFIX}.{batch_index:05d}"
+        total = 0
+        for stage in BATCH_STAGES:
+            error_file = (
+                batch_dir / SLURM_SUBDIR_TEMPLATE.format(stage) / ERROR_TASKS_FILE
+            )
+            total += count_lines(error_file)
+        return total
 
     def progress_bar(completed, total, width=20):
         if total == 0:
@@ -243,7 +238,7 @@ def cmd_batch_status(args):
         calc_total = infer_done
         calc_done = count_progress_ends(batch_dir / "slurm_calc" / PROGRESS_FILE)
 
-        error_done = count_lines(batch_dir / "error_tasks.jsonl")
+        error_done = count_total_errors(workdir, batch_index)
 
         return {
             "olp": {"total": olp_total, "done": olp_done},

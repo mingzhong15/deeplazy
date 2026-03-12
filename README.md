@@ -84,14 +84,35 @@ workflow_root/
 ├── batch_state.json            # State file for resume
 ├── monitor_state.json          # Monitor state for error tracking
 ├── batch.00000/                # First batch
-│   ├── olp_tasks.jsonl         # OLP input tasks
-│   ├── infer_tasks.jsonl       # Infer input tasks (OLP output)
-│   ├── calc_tasks.jsonl        # Calc input tasks (Infer output)
-│   ├── error_tasks.jsonl       # Failed tasks
-│   └── task.000000/            # Individual task
-│       ├── olp/                # OLP stage output
-│       ├── infer/              # Infer stage output
-│       └── scf/                # Calc stage output
+│   ├── slurm_olp/              # OLP SLURM scripts directory
+│   │   ├── submit.sh           # SLURM submit script
+│   │   ├── olp_tasks.jsonl     # OLP input tasks
+│   │   ├── error_tasks.jsonl   # Failed OLP tasks
+│   │   └── progress            # Progress tracking
+│   ├── output_olp/             # OLP output directory
+│   │   ├── folders.dat         # Task paths list
+│   │   └── task.000000/        # Individual task output
+│   │       └── overlaps.h5
+│   ├── slurm_infer/            # Infer SLURM scripts directory
+│   │   ├── submit.sh
+│   │   ├── infer_tasks.jsonl   # Infer input tasks (from OLP)
+│   │   ├── error_tasks.jsonl   # Failed Infer tasks
+│   │   └── progress
+│   ├── output_infer/           # Infer output directory
+│   │   ├── hamlog.dat          # Task paths for Calc
+│   │   └── g.001/              # Group directory
+│   │       └── geth/
+│   │           └── task.000000/
+│   │               └── hamiltonians.h5
+│   ├── slurm_calc/             # Calc SLURM scripts directory
+│   │   ├── submit.sh
+│   │   ├── calc_tasks.jsonl    # Calc input tasks (from Infer)
+│   │   ├── error_tasks.jsonl   # Failed Calc tasks
+│   │   └── progress
+│   └── output_calc/            # Calc output directory
+│       └── task.000000/
+│           ├── scf/            # SCF calculation output
+│           └── geth/hamiltonians.h5
 ├── batch.00001/                # Second batch
 └── ...
 ```
@@ -111,6 +132,15 @@ All task files use JSON Lines format with unified field name `path`:
 See `examples/demo-workflow/global_config.yaml` for an example configuration file.
 
 ## Changelog
+
+### v2.9.4 (2026-03-13)
+
+**Bug Fixes:**
+- Fixed `batch-status` error count: now correctly reads from `slurm_{stage}/error_tasks.jsonl` instead of wrong path
+- Removed unused dead code: `count_infer_outputs()`, `count_calc_outputs()` functions
+
+**Documentation:**
+- Updated directory structure in README to reflect actual implementation (`slurm_olp/`, `output_olp/`, etc.)
 
 ### v2.9.3 (2026-03-12)
 
