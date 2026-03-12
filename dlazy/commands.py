@@ -764,6 +764,14 @@ class InferCommandExecutor:
                     )
                 )
 
+            for i, infer_task in enumerate(infer_tasks):
+                label = Path(infer_task.path).name
+                write_progress(label, "end")
+
+            for i, infer_task in enumerate(infer_tasks):
+                label = Path(infer_task.path).name
+                write_progress(label, "end")
+
             logger.info("Infer completed for group %d", group_index)
             return calc_tasks
 
@@ -916,13 +924,9 @@ class CalcCommandExecutor:
             subprocess.run(command_create, env=env, shell=True, check=True, text=True)
 
             infer_geth_dir = Path(task.geth_path)
-            pred_ham = infer_geth_dir / HAMILTONIAN_LINK_FILENAME
+            pred_ham = infer_geth_dir / HAMILTONIAN_FILENAME
             if not pred_ham.exists():
-                pred_ham = infer_geth_dir / HAMILTONIAN_PRED_FILENAME
-            if not pred_ham.exists():
-                raise HamiltonianNotFoundError(
-                    f"Hamiltonian not found in {infer_geth_dir}"
-                )
+                raise HamiltonianNotFoundError(f"Hamiltonian not found: {pred_ham}")
 
             target_ham = scf_dir / HAMILTONIAN_FILENAME
             if target_ham.exists() or target_ham.is_symlink():

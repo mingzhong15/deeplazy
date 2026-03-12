@@ -112,6 +112,13 @@ See `examples/demo-workflow/global_config.yaml` for an example configuration fil
 
 ## Changelog
 
+### v2.9.3 (2026-03-12)
+
+**Bug Fixes:**
+- Fixed `data_dir_depth` from 1 to 0 in infer.toml.j2 template (match transform `-t 0` output)
+- Fixed Calc stage: now correctly reads `hamiltonians.h5` (transform_reverse output) instead of fallback lookup
+- Added progress "end" tracking in Infer stage
+
 ### v2.9.2 (2026-03-12)
 
 **Config Fix:**
