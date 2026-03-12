@@ -53,7 +53,6 @@ software:
     cpus_per_task: 1
     time: "2-00:00:00"
     array_size: 2
-    batch_size: 5
     modules:
       - "hdf5/1.10.7-gcc9.4-mpich4.1.2"
       - "openmx/3.9-gcc9.4.0-mpich4.1.2"
@@ -105,7 +104,6 @@ software:
     cpus_per_task: 1
     time: "4-00:00:00"
     array_size: 10
-    batch_size: 1
     modules:
       - "hdf5/1.10.7-gcc9.4-mpich4.1.2"
       - "openmx/3.9-gcc9.4.0-mpich4.1.2"

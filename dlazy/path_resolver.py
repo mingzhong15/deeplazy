@@ -184,6 +184,10 @@ class BatchPathResolver(PathResolver):
         """Get todo_list.json path at workflow root."""
         return self._workflow_root / "todo_list.json"
 
+    def get_permanent_error_file(self) -> Path:
+        """Get permanent error file (exceeded max retries)."""
+        return self._workflow_root / "permanent_errors.jsonl"
+
     def get_next_batch_resolver(self) -> "BatchPathResolver":
         """Get PathResolver for the next batch."""
         return BatchPathResolver(self._workflow_root, self._batch_index + 1)

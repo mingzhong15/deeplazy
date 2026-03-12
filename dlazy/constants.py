@@ -97,6 +97,9 @@ BATCH_JOB_NAMES = {
 SLURM_SUBDIR_TEMPLATE = "slurm_{}"  # slurm_olp, slurm_infer, slurm_calc
 OUTPUT_SUBDIR_TEMPLATE = "output_{}"  # output_olp, output_infer, output_calc
 
+# Batch retry configuration
+MAX_RETRY_COUNT = 3  # Maximum retry count for failed tasks
+
 # ============================================
 # Monitor Configuration
 # ============================================

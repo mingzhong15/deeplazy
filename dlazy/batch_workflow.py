@@ -3,18 +3,33 @@
 from __future__ import annotations
 
 import json
+import math
+import subprocess
+import time
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from .constants import (
     BATCH_STATE_FILE,
     BATCH_STAGES,
+    MAX_RETRY_COUNT,
     MONITOR_STATE_FILE,
 )
 from .contexts import BatchContext
 from .exceptions import AbortException
 from .path_resolver import BatchPathResolver
-from .record_utils import OlpTask, _read_jsonl
+from .record_utils import (
+    ErrorTask,
+    OlpTask,
+    _read_jsonl,
+    append_error_task,
+    append_olp_task,
+    count_tasks,
+    get_task_retry_count,
+    write_olp_tasks,
+)
+from .template_generator import generate_submit_script
 from .utils import ensure_directory, get_logger, load_yaml_config
 from .workflow_base import WorkflowBase
 
@@ -23,13 +38,14 @@ if TYPE_CHECKING:
 
 
 class BatchScheduler(WorkflowBase):
-    """Manages batch iterative computation with SLURM job submission."""
+    """Manages batch iterative computation with dynamic SLURM configuration."""
 
     def __init__(self, ctx: BatchContext):
         super().__init__()
         self.ctx = ctx
         self.logger = get_logger("batch_scheduler")
         self.state: Dict[str, Any] = self._load_or_init_state()
+        self.config = load_yaml_config(self.ctx.config_path)
 
         if self.ctx.monitor is not None:
             self.monitor = self.ctx.monitor
@@ -53,9 +69,8 @@ class BatchScheduler(WorkflowBase):
             "current_batch": 0,
             "current_stage": "olp",
             "completed_batches": [],
-            "olp_completed": False,
-            "infer_completed": False,
-            "calc_completed": False,
+            "initialized": False,
+            "total_batches": 0,
         }
         self._save_state(state)
         return state
@@ -67,6 +82,7 @@ class BatchScheduler(WorkflowBase):
         if self.ctx.state_file is None:
             return
         ensure_directory(self.ctx.state_file.parent)
+        state["last_update"] = datetime.now().isoformat()
         with open(self.ctx.state_file, "w", encoding="utf-8") as f:
             json.dump(state, f, indent=2)
 
@@ -74,125 +90,357 @@ class BatchScheduler(WorkflowBase):
         """Get PathResolver for a specific batch."""
         return BatchPathResolver(self.ctx.workflow_root, batch_index)
 
-    def _has_more_batches(self) -> bool:
-        """Check if there are more batches to process."""
-        path_resolver = self._get_path_resolver(self.state["current_batch"])
-        todo_list_file = path_resolver.get_todo_list_file()
+    def _init_batch_tasks(self) -> int:
+        """
+        Initialize batch task files from root todo_list.json.
 
-        if not todo_list_file.exists():
-            return False
+        Divides tasks by batch_size and writes to each batch's olp_tasks.jsonl.
 
-        with open(todo_list_file, "r", encoding="utf-8") as f:
-            lines = f.readlines()
+        Returns:
+            Number of batches created
+        """
+        resolver = self._get_path_resolver(0)
+        todo_file = resolver.get_todo_list_file()
 
-        total_tasks = len(lines)
-        start_idx = self.state["current_batch"] * self.ctx.batch_size
+        if not todo_file.exists():
+            self.logger.warning("todo_list.json not found at %s", todo_file)
+            return 0
 
-        return start_idx < total_tasks
+        tasks = list(_read_jsonl(todo_file))
+        if not tasks:
+            self.logger.warning("No tasks in todo_list.json")
+            return 0
 
-    def _get_next_stage(self, current_stage: str) -> str:
-        """Get the next stage in the workflow."""
-        stage_order = ["olp", "infer", "calc", "complete"]
-        try:
-            idx = stage_order.index(current_stage)
-            return stage_order[idx + 1]
-        except (ValueError, IndexError):
-            return "complete"
+        batch_size = self.ctx.batch_size
+        num_batches = math.ceil(len(tasks) / batch_size)
 
-    def _check_stage_status(self, stage: str, path_resolver: BatchPathResolver) -> str:
-        """Check if a stage is pending/running/completed."""
-        if stage == "olp":
-            folders_file = path_resolver.get_olp_folders_file()
-            if folders_file.exists() and folders_file.stat().st_size > 0:
-                return "completed"
-        elif stage == "infer":
-            hamlog_file = path_resolver.get_infer_hamlog_file()
-            if hamlog_file.exists() and hamlog_file.stat().st_size > 0:
-                return "completed"
-        elif stage == "calc":
-            folders_file = path_resolver.get_calc_folders_file()
-            if folders_file.exists() and folders_file.stat().st_size > 0:
-                return "completed"
+        self.logger.info(
+            "Initializing %d batches for %d tasks (batch_size=%d)",
+            num_batches,
+            len(tasks),
+            batch_size,
+        )
 
-        return "pending"
+        for i in range(num_batches):
+            start = i * batch_size
+            end = min(start + batch_size, len(tasks))
+            batch_tasks = tasks[start:end]
 
-    def _prepare_olp_tasks(self, path_resolver: BatchPathResolver) -> List[OlpTask]:
-        """Prepare OLP tasks from todo_list.json."""
-        todo_list_file = path_resolver.get_todo_list_file()
+            batch_resolver = self._get_path_resolver(i)
+            tasks_file = batch_resolver.get_olp_tasks_file()
+            tasks_file.parent.mkdir(parents=True, exist_ok=True)
 
-        if not todo_list_file.exists():
-            self.logger.warning("No input file found: %s", todo_list_file)
+            olp_tasks = [OlpTask(path=t["path"]) for t in batch_tasks]
+            write_olp_tasks(tasks_file, olp_tasks)
+
+            self.logger.info("Created batch %d with %d tasks", i, len(batch_tasks))
+
+        return num_batches
+
+    def _count_batch_tasks(self, resolver: BatchPathResolver) -> int:
+        """Count tasks in current batch."""
+        return count_tasks(resolver.get_olp_tasks_file())
+
+    def _collect_failed_tasks(self, resolver: BatchPathResolver) -> List[OlpTask]:
+        """
+        Collect failed tasks from all stages.
+
+        Filters out tasks that exceeded max retry count.
+
+        Args:
+            resolver: Current batch path resolver
+
+        Returns:
+            List of failed tasks that can be retried
+        """
+        failed_paths = set()
+
+        for stage in BATCH_STAGES:
+            error_file = getattr(resolver, f"get_{stage}_error_file")()
+            if error_file.exists():
+                for d in _read_jsonl(error_file):
+                    path = d.get("path", "")
+                    if path:
+                        failed_paths.add(path)
+
+        if not failed_paths:
             return []
 
-        tasks = []
-        for d in _read_jsonl(todo_list_file):
-            path = d.get("path", "")
-            if path:
-                tasks.append(OlpTask(path=path))
+        valid_tasks = []
+        permanent_errors = []
 
-        start_idx = self.state["current_batch"] * self.ctx.batch_size
-        end_idx = start_idx + self.ctx.batch_size
-        return tasks[start_idx:end_idx]
+        for path in failed_paths:
+            retry_count = get_task_retry_count(self.ctx.workflow_root, path)
+            if retry_count >= MAX_RETRY_COUNT:
+                permanent_errors.append(
+                    ErrorTask(
+                        path=path,
+                        stage="exceeded",
+                        error=f"Max retry count ({MAX_RETRY_COUNT}) exceeded",
+                        batch_id=str(resolver.batch_index),
+                        task_id="",
+                        retry_count=retry_count,
+                    )
+                )
+            else:
+                valid_tasks.append(OlpTask(path=path))
+
+        if permanent_errors:
+            perm_file = resolver.get_permanent_error_file()
+            perm_file.parent.mkdir(parents=True, exist_ok=True)
+            for task in permanent_errors:
+                append_error_task(perm_file, task)
+            self.logger.warning(
+                "%d tasks exceeded max retries, saved to %s",
+                len(permanent_errors),
+                perm_file,
+            )
+
+        self.logger.info(
+            "Collected %d failed tasks (%d permanent failures)",
+            len(valid_tasks),
+            len(permanent_errors),
+        )
+
+        return valid_tasks
+
+    def _forward_failed_tasks(
+        self, failed_tasks: List[OlpTask], next_resolver: BatchPathResolver
+    ) -> None:
+        """
+        Forward failed tasks to next batch.
+
+        Args:
+            failed_tasks: List of failed tasks to retry
+            next_resolver: Path resolver for next batch
+        """
+        if not failed_tasks:
+            return
+
+        tasks_file = next_resolver.get_olp_tasks_file()
+        tasks_file.parent.mkdir(parents=True, exist_ok=True)
+
+        for task in failed_tasks:
+            append_olp_task(tasks_file, task)
+
+        self.logger.info(
+            "Forwarded %d failed tasks to batch %d",
+            len(failed_tasks),
+            next_resolver.batch_index,
+        )
+
+    def _get_python_path(self, stage: str = "olp") -> str:
+        """Get Python interpreter path for stage."""
+        software_config = self.config.get("software", {})
+        if stage == "infer":
+            path = software_config.get("python_deeph", "python")
+            if path.endswith("/"):
+                return path + "python"
+            return path
+        return software_config.get("python", "python")
+
+    def _submit_slurm_job(
+        self, script_path: Path, work_dir: Path, job_name: str
+    ) -> str:
+        """
+        Submit SLURM job and return job ID.
+
+        Args:
+            script_path: Path to submit.sh
+            work_dir: Working directory
+            job_name: Job name for logging
+
+        Returns:
+            Job ID string
+        """
+        result = subprocess.run(
+            "sbatch submit.sh",
+            shell=True,
+            capture_output=True,
+            text=True,
+            cwd=str(work_dir),
+        )
+
+        if result.returncode != 0:
+            self.logger.error("sbatch failed: %s", result.stderr)
+            raise RuntimeError(f"sbatch failed: {result.stderr}")
+
+        output = result.stdout.strip()
+        if "Submitted batch job" in output:
+            job_id = output.split()[-1]
+            self.logger.info("Submitted %s job: %s", job_name, job_id)
+            return job_id
+
+        self.logger.warning("Unexpected sbatch output: %s", output)
+        return ""
+
+    def _check_slurm_job_state(self, job_id: str) -> str:
+        """Check SLURM job state."""
+        if not job_id:
+            return "UNKNOWN"
+
+        main_job_id = job_id.split("_")[0]
+        result = subprocess.run(
+            f"sacct -j {main_job_id} --format=State --noheader --parsertype",
+            shell=True,
+            capture_output=True,
+            text=True,
+        )
+
+        if result.returncode != 0:
+            return "UNKNOWN"
+
+        states = [s.strip() for s in result.stdout.strip().split("\n") if s.strip()]
+        return states[0] if states else "UNKNOWN"
+
+    def _wait_for_job_completion(
+        self, job_id: str, stage: str, check_interval: int = 60
+    ) -> bool:
+        """
+        Wait for SLURM job to complete.
+
+        Args:
+            job_id: SLURM job ID
+            stage: Stage name for logging
+            check_interval: Check interval in seconds
+
+        Returns:
+            True if completed successfully, False if failed
+        """
+        terminal_states = {
+            "COMPLETED",
+            "FAILED",
+            "CANCELLED",
+            "TIMEOUT",
+            "NODE_FAIL",
+            "OUT_OF_MEMORY",
+        }
+
+        while True:
+            state = self._check_slurm_job_state(job_id)
+            self.logger.info("[%s] Job %s state: %s", stage, job_id, state)
+
+            if state in terminal_states:
+                if state == "COMPLETED":
+                    return True
+                else:
+                    self.logger.error(
+                        "[%s] Job %s failed with state: %s", stage, job_id, state
+                    )
+                    return False
+
+            time.sleep(check_interval)
+
+    def _run_stage(
+        self, stage: str, resolver: BatchPathResolver, num_tasks: int
+    ) -> bool:
+        """
+        Run a single stage.
+
+        Args:
+            stage: Stage name (olp, infer, calc)
+            resolver: Path resolver
+            num_tasks: Number of tasks
+
+        Returns:
+            True if stage completed successfully
+        """
+        stage_config_map = {"olp": "0olp", "infer": "1infer", "calc": "2calc"}
+        config_key = stage_config_map[stage]
+
+        stage_dir = getattr(resolver, f"get_{stage}_slurm_dir")()
+        stage_dir.mkdir(parents=True, exist_ok=True)
+
+        script_path = generate_submit_script(
+            stage_name=config_key,
+            stage_dir=stage_dir,
+            stage_config=self.config.get(config_key, {}),
+            python_path=self._get_python_path(stage),
+            config_path=str(self.ctx.config_path),
+            software_config=self.config.get("software", {}),
+            num_tasks=num_tasks,
+        )
+
+        job_id = self._submit_slurm_job(script_path, stage_dir, f"batch-{stage}")
+
+        if not job_id:
+            return False
+
+        return self._wait_for_job_completion(job_id, stage)
+
+    def _has_pending_batches(self) -> bool:
+        """Check if there are pending batches to process."""
+        resolver = self._get_path_resolver(self.state["current_batch"])
+        return self._count_batch_tasks(resolver) > 0
 
     def run(self) -> Dict[str, Any]:
-        """Run the batch workflow loop."""
+        """
+        Run the batch workflow loop.
+
+        Returns:
+            Result dict with status and batch count
+        """
         self.logger.info(
             "Starting batch workflow with batch_size=%d", self.ctx.batch_size
         )
 
         try:
-            while self._has_more_batches():
+            if not self.state.get("initialized"):
+                num_batches = self._init_batch_tasks()
+                self.state["initialized"] = True
+                self.state["total_batches"] = num_batches
+                self._save_state()
+
+            while self._has_pending_batches():
+                if self._check_abort():
+                    raise AbortException(
+                        self._get_abort_reason() or "Max retries exceeded"
+                    )
+
                 batch_index = self.state["current_batch"]
-                path_resolver = self._get_path_resolver(batch_index)
+                resolver = self._get_path_resolver(batch_index)
 
-                ensure_directory(path_resolver.get_workdir())
-
-                self.logger.info("Processing batch %d", batch_index)
-
-                if not self.state.get("olp_completed"):
-                    self._run_olp_stage(path_resolver)
-                    self.state["olp_completed"] = True
+                num_tasks = self._count_batch_tasks(resolver)
+                if num_tasks == 0:
+                    self.logger.info("Batch %d empty, skipping", batch_index)
+                    self.state["current_batch"] = batch_index + 1
                     self._save_state()
-                    self._save_monitor_state(
-                        self.ctx.workflow_root / MONITOR_STATE_FILE
-                    )
+                    continue
 
-                if self._check_abort():
-                    raise AbortException(
-                        self._get_abort_reason() or "Max retries exceeded"
-                    )
+                self.logger.info(
+                    "Processing batch %d: %d tasks", batch_index, num_tasks
+                )
 
-                if not self.state.get("infer_completed"):
-                    self._run_infer_stage(path_resolver)
-                    self.state["infer_completed"] = True
-                    self._save_state()
-                    self._save_monitor_state(
-                        self.ctx.workflow_root / MONITOR_STATE_FILE
-                    )
+                ensure_directory(resolver.get_workdir())
 
-                if self._check_abort():
-                    raise AbortException(
-                        self._get_abort_reason() or "Max retries exceeded"
-                    )
+                for stage in BATCH_STAGES:
+                    stage_key = f"{stage}_completed"
+                    if not self.state.get(stage_key):
+                        success = self._run_stage(stage, resolver, num_tasks)
+                        if not success:
+                            self.logger.error(
+                                "Batch %d stage %s failed", batch_index, stage
+                            )
+                        self.state[stage_key] = True
+                        self._save_state()
+                        self._save_monitor_state(
+                            self.ctx.workflow_root / MONITOR_STATE_FILE
+                        )
 
-                if not self.state.get("calc_completed"):
-                    self._run_calc_stage(path_resolver)
-                    self.state["calc_completed"] = True
-                    self._save_state()
-                    self._save_monitor_state(
-                        self.ctx.workflow_root / MONITOR_STATE_FILE
-                    )
+                    if self._check_abort():
+                        raise AbortException(
+                            self._get_abort_reason() or "Max retries exceeded"
+                        )
 
-                if self._check_abort():
-                    raise AbortException(
-                        self._get_abort_reason() or "Max retries exceeded"
-                    )
+                failed_tasks = self._collect_failed_tasks(resolver)
+                if failed_tasks:
+                    next_resolver = resolver.get_next_batch_resolver()
+                    self._forward_failed_tasks(failed_tasks, next_resolver)
 
                 self.state["completed_batches"].append(batch_index)
                 self.state["current_batch"] = batch_index + 1
-                self.state["olp_completed"] = False
-                self.state["infer_completed"] = False
-                self.state["calc_completed"] = False
+                for stage in BATCH_STAGES:
+                    self.state[f"{stage}_completed"] = False
                 self._save_state()
                 self._save_monitor_state(self.ctx.workflow_root / MONITOR_STATE_FILE)
 
@@ -211,55 +459,6 @@ class BatchScheduler(WorkflowBase):
                 "reason": e.reason,
                 "batches": len(self.state["completed_batches"]),
             }
-
-    def _run_olp_stage(self, path_resolver: BatchPathResolver) -> None:
-        """Run OLP stage for current batch."""
-        self.logger.info("Running OLP stage in %s", path_resolver.get_workdir())
-
-        from .executor import WorkflowExecutor
-
-        config = load_yaml_config(self.ctx.config_path)
-        olp_config = config.get("0olp", {})
-
-        start_idx = self.state["current_batch"] * self.ctx.batch_size
-        end_idx = start_idx + self.ctx.batch_size
-
-        WorkflowExecutor.run_olp_stage(
-            global_config=str(self.ctx.config_path),
-            start=start_idx,
-            end=end_idx,
-            path_resolver=path_resolver,
-            monitor=self.monitor,
-        )
-
-    def _run_infer_stage(self, path_resolver: BatchPathResolver) -> None:
-        """Run Infer stage for current batch."""
-        self.logger.info("Running Infer stage in %s", path_resolver.get_workdir())
-
-        from .executor import WorkflowExecutor
-
-        WorkflowExecutor.run_infer_stage(
-            global_config=str(self.ctx.config_path),
-            group_index=1,
-            path_resolver=path_resolver,
-        )
-
-    def _run_calc_stage(self, path_resolver: BatchPathResolver) -> None:
-        """Run Calc stage for current batch."""
-        self.logger.info("Running Calc stage in %s", path_resolver.get_workdir())
-
-        from .executor import WorkflowExecutor
-
-        start_idx = self.state["current_batch"] * self.ctx.batch_size
-        end_idx = start_idx + self.ctx.batch_size
-
-        WorkflowExecutor.run_calc_stage(
-            global_config=str(self.ctx.config_path),
-            start=start_idx,
-            end=end_idx,
-            path_resolver=path_resolver,
-            monitor=self.monitor,
-        )
 
 
 class BatchWorkflowManager(BatchScheduler):

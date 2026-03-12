@@ -61,6 +61,7 @@ class ErrorTask:
     error: str
     batch_id: str
     task_id: str
+    retry_count: int = 0
 
     def to_dict(self) -> dict:
         return {
@@ -69,6 +70,7 @@ class ErrorTask:
             "error": self.error,
             "batch_id": self.batch_id,
             "task_id": self.task_id,
+            "retry_count": self.retry_count,
         }
 
     @classmethod
@@ -79,6 +81,7 @@ class ErrorTask:
             error=d["error"],
             batch_id=d["batch_id"],
             task_id=d["task_id"],
+            retry_count=d.get("retry_count", 0),
         )
 
 
@@ -145,3 +148,28 @@ def append_calc_task(filepath: Path, task: CalcTask) -> None:
 def append_error_task(filepath: Path, task: ErrorTask) -> None:
     """Append an error task."""
     _write_jsonl(filepath, [task.to_dict()], append=True)
+
+
+def append_olp_task(filepath: Path, task: OlpTask) -> None:
+    """Append a single OLP task."""
+    _write_jsonl(filepath, [task.to_dict()], append=True)
+
+
+def count_tasks(filepath: Path) -> int:
+    """Count lines in a JSONL file."""
+    if not filepath.exists():
+        return 0
+    return sum(1 for _ in _read_jsonl(filepath))
+
+
+def get_task_retry_count(workflow_root: Path, task_path: str) -> int:
+    """Count how many times a task has failed across all batches."""
+    count = 0
+    batch_dirs = sorted(workflow_root.glob("batch.*"))
+    for batch_dir in batch_dirs:
+        error_files = list(batch_dir.rglob("error_tasks.jsonl"))
+        for ef in error_files:
+            for d in _read_jsonl(ef):
+                if d.get("path") == task_path:
+                    count += 1
+    return count
