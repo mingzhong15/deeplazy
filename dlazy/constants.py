@@ -79,6 +79,25 @@ INFER_SUBDIR = "infer"
 SCF_SUBDIR = "scf"
 
 # ============================================
+# Batch Workflow Stages
+# ============================================
+BATCH_STAGES = ["olp", "infer", "calc"]
+BATCH_STAGE_CONFIG_MAP = {
+    "olp": "0olp",
+    "infer": "1infer",
+    "calc": "2calc",
+}
+BATCH_JOB_NAMES = {
+    "olp": "B-batch-olp",
+    "infer": "B-batch-infer",
+    "calc": "B-batch-calc",
+}
+
+# Batch subdirectory templates
+SLURM_SUBDIR_TEMPLATE = "slurm_{}"  # slurm_olp, slurm_infer, slurm_calc
+OUTPUT_SUBDIR_TEMPLATE = "output_{}"  # output_olp, output_infer, output_calc
+
+# ============================================
 # Monitor Configuration
 # ============================================
 from dlazy.exceptions import FailureType
