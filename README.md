@@ -112,6 +112,16 @@ See `examples/demo-workflow/global_config.yaml` for an example configuration fil
 
 ## Changelog
 
+### v2.9.1 (2026-03-12)
+
+**Infer Stage Fix:**
+- Fixed symlink source for `info.json`: now correctly links from `inputs/dft/` instead of `outputs/dft/`
+- Added `POSCAR` symlink to `geth.new/` directory for transform_reverse
+
+**Transform Reverse Fix:**
+- `--backward` mode requires correct parameter order: `input_dir` (new format) before `output_dir` (old format)
+- Update `global_config.yaml`: swap `{input_dir}` and `{output_dir}` in `transform_reverse` command
+
 ### v2.9.0 (2026-03-12)
 
 **Auto-Resume Behavior:**

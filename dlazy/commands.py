@@ -723,12 +723,19 @@ class InferCommandExecutor:
                     target_ham.unlink()
                 os.symlink(source_ham, target_ham)
 
-                source_info = output_dft_dir / task_dirname / "info.json"
+                source_info = input_dft_dir / task_dirname / "info.json"
                 if source_info.exists():
                     target_info = target_task_dir / "info.json"
                     if target_info.exists() or target_info.is_symlink():
                         target_info.unlink()
                     os.symlink(source_info, target_info)
+
+                source_poscar = input_dft_dir / task_dirname / "POSCAR"
+                if source_poscar.exists():
+                    target_poscar = target_task_dir / "POSCAR"
+                    if target_poscar.exists() or target_poscar.is_symlink():
+                        target_poscar.unlink()
+                    os.symlink(source_poscar, target_poscar)
 
             transform_reverse_cmd = config["commands"]["transform_reverse"]
             command = transform_reverse_cmd.format(
