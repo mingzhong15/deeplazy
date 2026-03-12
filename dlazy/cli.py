@@ -145,7 +145,7 @@ def cmd_version(args):
 
 def cmd_batch(args):
     """运行批量工作流"""
-    from .batch_workflow import BatchWorkflowManager
+    from .batch_workflow import BatchScheduler
     from .contexts import BatchContext
 
     config_path = Path(args.config).resolve()
@@ -162,8 +162,8 @@ def cmd_batch(args):
         resume=args.resume,
     )
 
-    manager = BatchWorkflowManager(ctx)
-    result = manager.run()
+    scheduler = BatchScheduler(ctx)
+    result = scheduler.run()
     print(f"批量工作流完成: {result}")
 
 
