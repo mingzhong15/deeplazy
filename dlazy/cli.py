@@ -145,8 +145,10 @@ def cmd_version(args):
 
 def cmd_batch(args):
     """运行批量工作流"""
+    import shutil
     from .batch_workflow import BatchScheduler
     from .contexts import BatchContext
+    from .utils import get_existing_batch_count
 
     config_path = Path(args.config).resolve()
     workdir = Path(args.workdir).resolve() if args.workdir else config_path.parent
@@ -155,11 +157,47 @@ def cmd_batch(args):
         print(f"错误: 配置文件不存在: {config_path}", file=sys.stderr)
         sys.exit(1)
 
+    # 检查已有batch目录，决定处理方式
+    existing_count = get_existing_batch_count(workdir)
+    batch_mode = args.batch_mode
+
+    if existing_count > 0 and batch_mode == "auto":
+        print(f"\n检测到已有批次: batch.00000 ~ batch.{existing_count - 1:05d}")
+        print("请选择处理方式:")
+        print("  [1] append    - 从 batch.{:05d} 继续添加新批次".format(existing_count))
+        print("  [2] overwrite - 删除所有批次，从 batch.00000 重新开始")
+
+        while True:
+            choice = input("请输入选择 (1/2): ").strip()
+            if choice == "1":
+                batch_mode = "append"
+                break
+            elif choice == "2":
+                batch_mode = "overwrite"
+                break
+            else:
+                print("无效输入，请输入 1 或 2")
+
+    if batch_mode == "overwrite" and existing_count > 0:
+        print(f"正在删除 {existing_count} 个已有批次...")
+        for i in range(existing_count):
+            batch_dir = workdir / f"batch.{i:05d}"
+            if batch_dir.exists():
+                shutil.rmtree(batch_dir)
+        # 同时清理状态文件
+        state_file = workdir / "batch_state.json"
+        if state_file.exists():
+            state_file.unlink()
+        monitor_file = workdir / "monitor_state.json"
+        if monitor_file.exists():
+            monitor_file.unlink()
+        print("已清理所有批次和状态文件")
+
     ctx = BatchContext(
         config_path=config_path,
         workflow_root=workdir,
         batch_size=args.batch_size,
-        fresh=args.fresh,
+        fresh=(batch_mode == "overwrite"),
     )
 
     scheduler = BatchScheduler(ctx)
@@ -605,6 +643,44 @@ def cmd_batch_retry_tasks(args):
     output_file = Path(args.output).resolve() if args.output else None
     result = scheduler.extract_retry_tasks(output_file=output_file)
 
+    # 如果指定了 --run 参数，自动启动新批次
+    if args.run:
+        import shutil
+        from .utils import get_existing_batch_count
+
+        existing_count = get_existing_batch_count(workdir)
+        print(f"\n正在启动新批次，从 batch.{existing_count:05d} 开始...")
+
+        # 将 retry 文件重命名为 todo_list.json
+        retry_file = (
+            Path(args.output).resolve()
+            if args.output
+            else workdir / "todo_list_retry.json"
+        )
+        todo_file = workdir / "todo_list.json"
+
+        if retry_file.exists():
+            # 备份原始 todo_list.json
+            if todo_file.exists():
+                backup_file = workdir / "todo_list.json.backup"
+                shutil.copy(todo_file, backup_file)
+                print(f"已备份原始 todo_list.json 到 {backup_file}")
+
+            # 复制 retry 文件到 todo_list.json
+            shutil.copy(retry_file, todo_file)
+            print(f"已将 {retry_file} 复制到 {todo_file}")
+
+        # 启动新批次
+        ctx_run = BatchContext(
+            config_path=config_path,
+            workflow_root=workdir,
+            batch_size=args.batch_size if args.batch_size else 100,
+            fresh=False,
+        )
+        scheduler_run = BatchScheduler(ctx_run)
+        result_run = scheduler_run.run()
+        print(f"新批次完成: {result_run}")
+
 
 def main():
     """CLI 主入口"""
@@ -721,6 +797,12 @@ def main():
         action="store_true",
         help="从头开始（删除已有状态）",
     )
+    parser_batch.add_argument(
+        "--batch-mode",
+        choices=["auto", "append", "overwrite"],
+        default="auto",
+        help="批次处理模式: auto(检测到已有批次时提示), append(追加), overwrite(覆盖)",
+    )
     parser_batch.set_defaults(func=cmd_batch)
 
     parser_batch_status = subparsers.add_parser(
@@ -756,6 +838,17 @@ def main():
         "--output",
         default="todo_list_retry.json",
         help="Output file for retry tasks",
+    )
+    parser_batch_retry.add_argument(
+        "--run",
+        action="store_true",
+        help="自动启动新批次处理失败任务",
+    )
+    parser_batch_retry.add_argument(
+        "--batch-size",
+        type=int,
+        default=100,
+        help="每批次任务数量 (默认: 100，与 --run 配合使用)",
     )
     parser_batch_retry.set_defaults(func=cmd_batch_retry_tasks)
 

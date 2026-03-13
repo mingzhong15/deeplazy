@@ -35,7 +35,12 @@ from .record_utils import (
     write_olp_tasks,
 )
 from .template_generator import generate_submit_script
-from .utils import ensure_directory, get_logger, load_yaml_config
+from .utils import (
+    ensure_directory,
+    get_existing_batch_count,
+    get_logger,
+    load_yaml_config,
+)
 from .workflow_base import WorkflowBase
 
 if TYPE_CHECKING:
@@ -76,13 +81,22 @@ class BatchScheduler(WorkflowBase):
                 self.logger.info("Resumed from state: %s", self.ctx.state_file)
                 return state
 
-        # 初始化新状态
+        # 初始化新状态 - 检测现有batch目录
+        start_batch = get_existing_batch_count(self.ctx.workflow_root)
+        if start_batch > 0:
+            self.logger.info(
+                "Detected %d existing batches, starting from batch %d",
+                start_batch,
+                start_batch,
+            )
+
         state = {
-            "current_batch": 0,
+            "current_batch": start_batch,
             "current_stage": "olp",
             "completed_batches": [],
             "initialized": False,
             "total_batches": 0,
+            "start_batch_index": start_batch,
         }
         self._save_state(state)
         return state
@@ -111,11 +125,14 @@ class BatchScheduler(WorkflowBase):
         """Get PathResolver for a specific batch."""
         return BatchPathResolver(self.ctx.workflow_root, batch_index)
 
-    def _init_batch_tasks(self) -> int:
+    def _init_batch_tasks(self, start_batch_index: int = 0) -> int:
         """
         Initialize batch task files from root todo_list.json.
 
         Divides tasks by batch_size and writes to each batch's olp_tasks.jsonl.
+
+        Args:
+            start_batch_index: Starting batch index (default 0, for resume/append mode)
 
         Returns:
             Number of batches created
@@ -136,25 +153,29 @@ class BatchScheduler(WorkflowBase):
         num_batches = math.ceil(len(tasks) / batch_size)
 
         self.logger.info(
-            "Initializing %d batches for %d tasks (batch_size=%d)",
+            "Initializing %d batches for %d tasks (batch_size=%d), starting from batch %d",
             num_batches,
             len(tasks),
             batch_size,
+            start_batch_index,
         )
 
         for i in range(num_batches):
+            batch_index = start_batch_index + i
             start = i * batch_size
             end = min(start + batch_size, len(tasks))
             batch_tasks = tasks[start:end]
 
-            batch_resolver = self._get_path_resolver(i)
+            batch_resolver = self._get_path_resolver(batch_index)
             tasks_file = batch_resolver.get_olp_tasks_file()
             tasks_file.parent.mkdir(parents=True, exist_ok=True)
 
             olp_tasks = [OlpTask(path=t["path"]) for t in batch_tasks]
             write_olp_tasks(tasks_file, olp_tasks)
 
-            self.logger.info("Created batch %d with %d tasks", i, len(batch_tasks))
+            self.logger.info(
+                "Created batch %d with %d tasks", batch_index, len(batch_tasks)
+            )
 
         return num_batches
 
@@ -463,9 +484,10 @@ class BatchScheduler(WorkflowBase):
 
         try:
             if not self.state.get("initialized"):
-                num_batches = self._init_batch_tasks()
+                start_batch = self.state.get("start_batch_index", 0)
+                num_batches = self._init_batch_tasks(start_batch_index=start_batch)
                 self.state["initialized"] = True
-                self.state["total_batches"] = num_batches
+                self.state["total_batches"] = num_batches + start_batch
                 self._save_state()
 
             while self._has_pending_batches():

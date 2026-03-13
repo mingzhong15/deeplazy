@@ -370,3 +370,27 @@ def get_batch_dir(workflow_root: Path, batch_index: int) -> Path:
 def get_task_dir(batch_dir: Path, task_index: int) -> Path:
     """Get task directory path within a batch."""
     return batch_dir / f"{TASK_DIR_PREFIX}.{task_index:0{TASK_PADDING}d}"
+
+
+def get_existing_batch_count(workflow_root: Path) -> int:
+    """Count existing batch directories and return the next available batch index.
+
+    Args:
+        workflow_root: Workflow root directory containing batch.* directories
+
+    Returns:
+        Next available batch index (0 if no existing batches)
+    """
+    batch_dirs = list(workflow_root.glob(f"{BATCH_DIR_PREFIX}.*"))
+    if not batch_dirs:
+        return 0
+
+    max_index = -1
+    for bd in batch_dirs:
+        try:
+            index = int(bd.name.split(".")[-1])
+            max_index = max(max_index, index)
+        except ValueError:
+            continue
+
+    return max_index + 1

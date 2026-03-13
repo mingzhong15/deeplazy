@@ -133,6 +133,42 @@ See `examples/demo-workflow/global_config.yaml` for an example configuration fil
 
 ## Changelog
 
+### v2.11.0 (2026-03-13)
+
+**New Features:**
+- **Smart batch continuation** - Automatically detects existing batch directories
+- **Interactive mode selection** - Prompts user to choose append/overwrite when existing batches found
+- **`--batch-mode` parameter** - New CLI option for batch mode: `auto`, `append`, `overwrite`
+- **`--run` parameter for `batch-retry-tasks`** - Automatically starts new batch after extracting failed tasks
+
+**Usage:**
+```bash
+# Smart mode - prompts if existing batches found (default)
+dlazy batch --config global_config.yaml
+
+# Force append mode - continue from existing batches
+dlazy batch --config global_config.yaml --batch-mode append
+
+# Force overwrite mode - delete all existing batches
+dlazy batch --config global_config.yaml --batch-mode overwrite
+
+# Extract failed tasks and auto-start new batch
+dlazy batch-retry-tasks --config global_config.yaml --run
+```
+
+**Example Interactive Session:**
+```
+$ dlazy batch --config global_config.yaml
+
+检测到已有批次: batch.00000 ~ batch.00007
+请选择处理方式:
+  [1] append    - 从 batch.00008 继续添加新批次
+  [2] overwrite - 删除所有批次，从 batch.00000 重新开始
+请输入选择 (1/2): 1
+
+正在从 batch.00008 开始创建新批次...
+```
+
 ### v2.10.0 (2026-03-13)
 
 **New Features:**
