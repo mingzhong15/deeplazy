@@ -133,6 +133,14 @@ See `examples/demo-workflow/global_config.yaml` for an example configuration fil
 
 ## Changelog
 
+### v2.14.1 (2026-03-13)
+
+**Bug Fix: SLURM Job Submission Retry**
+
+- Added automatic retry mechanism for SLURM job submission
+- Retries up to 3 times with 10-second delay between attempts
+- Better handling of transient SLURM errors
+
 ### v2.14.0 (2026-03-13)
 
 **Critical Fix: Output-Based Failure Detection**

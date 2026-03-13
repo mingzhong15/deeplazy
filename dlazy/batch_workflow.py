@@ -413,39 +413,61 @@ class BatchScheduler(WorkflowBase):
         return software_config.get("python", "python")
 
     def _submit_slurm_job(
-        self, script_path: Path, work_dir: Path, job_name: str
+        self,
+        script_path: Path,
+        work_dir: Path,
+        job_name: str,
+        max_retries: int = 3,
+        retry_delay: int = 10,
     ) -> str:
         """
-        Submit SLURM job and return job ID.
+        Submit SLURM job with automatic retry on failure.
 
         Args:
             script_path: Path to submit.sh
             work_dir: Working directory
             job_name: Job name for logging
+            max_retries: Maximum number of retry attempts (default: 3)
+            retry_delay: Delay in seconds between retries (default: 10)
 
         Returns:
             Job ID string
+
+        Raises:
+            RuntimeError: If all retry attempts fail
         """
-        result = subprocess.run(
-            "sbatch submit.sh",
-            shell=True,
-            capture_output=True,
-            text=True,
-            cwd=str(work_dir),
-        )
+        last_error = ""
+        for attempt in range(1, max_retries + 1):
+            result = subprocess.run(
+                "sbatch submit.sh",
+                shell=True,
+                capture_output=True,
+                text=True,
+                cwd=str(work_dir),
+            )
 
-        if result.returncode != 0:
-            self.logger.error("sbatch failed: %s", result.stderr)
-            raise RuntimeError(f"sbatch failed: {result.stderr}")
+            if result.returncode == 0:
+                output = result.stdout.strip()
+                if "Submitted batch job" in output:
+                    job_id = output.split()[-1]
+                    self.logger.info("Submitted %s job: %s", job_name, job_id)
+                    return job_id
+                self.logger.warning("Unexpected sbatch output: %s", output)
+                return ""
 
-        output = result.stdout.strip()
-        if "Submitted batch job" in output:
-            job_id = output.split()[-1]
-            self.logger.info("Submitted %s job: %s", job_name, job_id)
-            return job_id
+            last_error = result.stderr
+            self.logger.warning(
+                "sbatch failed (attempt %d/%d): %s",
+                attempt,
+                max_retries,
+                last_error,
+            )
 
-        self.logger.warning("Unexpected sbatch output: %s", output)
-        return ""
+            if attempt < max_retries:
+                self.logger.info("Retrying in %d seconds...", retry_delay)
+                time.sleep(retry_delay)
+
+        raise RuntimeError(f"sbatch failed after {max_retries} attempts: {last_error}")
 
     def _check_slurm_job_state(self, job_id: str) -> str:
         """Check SLURM job state."""
