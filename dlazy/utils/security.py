@@ -184,27 +184,6 @@ def sanitize_filename(filename: str) -> str:
 
 def validate_command_template(template: str) -> bool:
     """验证命令模板是否安全"""
-    allowed_placeholders = [
-        "poscar",
-        "scf",
-        "geth",
-        "ntasks",
-        "input_dir",
-        "output_dir",
-        "parallel",
-        "config_path",
-        "group_index",
-    ]
-
-    placeholders = re.findall(r"\{(\w+)\}", template)
-
-    for placeholder in placeholders:
-        if placeholder not in allowed_placeholders:
-            raise SecurityError(
-                f"命令模板包含未授权的占位符: {placeholder}\n"
-                f"允许的占位符: {allowed_placeholders}"
-            )
-
     dangerous_commands = [
         r"rm\s+-rf",
         r"dd\s+if=",
