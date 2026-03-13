@@ -133,6 +133,17 @@ See `examples/demo-workflow/global_config.yaml` for an example configuration fil
 
 ## Changelog
 
+### v2.9.9 (2026-03-13)
+
+**Bug Fixes:**
+- **Fixed Infer statistics** - Now correctly tracks Infer completion using calc_tasks.jsonl
+- Infer completion is determined by checking hamiltonians.h5 in geth_path (from calc_tasks.jsonl)
+- Calc completion is determined by checking hamiltonians.h5 in output_calc/task.*/geth/
+
+**Statistics Accuracy:**
+- Previous v2.9.8 incorrectly showed Infer as 0% complete
+- Now shows accurate completion rates for all three stages
+
 ### v2.9.8 (2026-03-13)
 
 **Critical Bug Fixes:**

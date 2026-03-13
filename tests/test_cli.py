@@ -57,7 +57,7 @@ def test_import():
     """测试导入"""
     from dlazy import __version__, WorkflowExecutor
 
-    assert __version__ == "2.9.8"
+    assert __version__ == "2.9.9"
     assert WorkflowExecutor is not None
     print("✓ test_import passed")
 
