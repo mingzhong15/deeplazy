@@ -394,3 +394,22 @@ def get_existing_batch_count(workflow_root: Path) -> int:
             continue
 
     return max_index + 1
+
+
+def get_next_backup_index(workflow_root: Path, prefix: str = "todo_list.origin") -> int:
+    """Get next backup index for todo_list backups.
+
+    Args:
+        workflow_root: Workflow root directory
+        prefix: Backup file prefix (default: "todo_list.origin")
+
+    Returns:
+        Next available index (1 if no existing backups)
+
+    Example:
+        If todo_list.origin.001 and todo_list.origin.002 exist, returns 3
+    """
+    idx = 1
+    while (workflow_root / f"{prefix}.{idx:03d}").exists():
+        idx += 1
+    return idx

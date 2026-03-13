@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import shutil
 import signal
 import subprocess
 import sys
@@ -39,6 +40,7 @@ from .utils import (
     ensure_directory,
     get_existing_batch_count,
     get_logger,
+    get_next_backup_index,
     load_yaml_config,
 )
 from .workflow_base import WorkflowBase
@@ -90,6 +92,16 @@ class BatchScheduler(WorkflowBase):
                 start_batch,
             )
 
+        # 计算原始任务数
+        original_task_count = 0
+        origin_file = self.ctx.workflow_root / "todo_list.origin"
+        todo_file = self.ctx.workflow_root / "todo_list.json"
+
+        if origin_file.exists():
+            original_task_count = sum(1 for _ in open(origin_file, "r"))
+        elif todo_file.exists():
+            original_task_count = sum(1 for _ in open(todo_file, "r"))
+
         state = {
             "current_batch": start_batch,
             "current_stage": "olp",
@@ -97,6 +109,7 @@ class BatchScheduler(WorkflowBase):
             "initialized": False,
             "total_batches": 0,
             "start_batch_index": start_batch,
+            "original_task_count": original_task_count,
         }
         self._save_state(state)
         return state
@@ -143,6 +156,13 @@ class BatchScheduler(WorkflowBase):
         if not todo_file.exists():
             self.logger.warning("todo_list.json not found at %s", todo_file)
             return 0
+
+        # 首次运行时，备份原始文件
+        if start_batch_index == 0:
+            origin_file = self.ctx.workflow_root / "todo_list.origin"
+            if not origin_file.exists():
+                shutil.copy(todo_file, origin_file)
+                self.logger.info("备份原始任务列表到: %s", origin_file)
 
         tasks = list(_read_jsonl(todo_file))
         if not tasks:
@@ -736,7 +756,8 @@ class BatchScheduler(WorkflowBase):
 
         output_file.parent.mkdir(parents=True, exist_ok=True)
         with open(output_file, "w", encoding="utf-8") as f:
-            json.dump(retry_tasks, f, indent=2, ensure_ascii=False)
+            for task in retry_tasks:
+                f.write(json.dumps(task, ensure_ascii=False) + "\n")
 
         completed_count = len(calc_success)
         failed_count = len(failed_paths)

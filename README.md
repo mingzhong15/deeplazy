@@ -133,6 +133,45 @@ See `examples/demo-workflow/global_config.yaml` for an example configuration fil
 
 ## Changelog
 
+### v2.12.0 (2026-03-13)
+
+**Critical Data Flow Improvements:**
+- **Preserve original task list** - `todo_list.origin` is created on first run and never modified
+- **Incremental backup system** - Each retry creates `todo_list.origin.001`, `.002`, etc.
+- **Accurate statistics** - `batch-status` now correctly shows original task count
+- **JSON Lines output** - `todo_list_retry.json` uses JSON Lines format for better streaming
+
+**Data Flow:**
+```
+First run:
+  todo_list.json → todo_list.origin (backup, never modified)
+  batch.00000 ~ batch.00007 created
+  batch_state.json {original_task_count: 704, ...}
+
+First retry (--run):
+  todo_list_retry.json generated (JSON Lines format)
+  todo_list.origin.001 created (backup before retry)
+  todo_list.json ← todo_list_retry.json
+  batch.00008 created
+
+batch-status:
+  Original tasks: 704 (from batch_state.json or todo_list.origin)
+  Current tasks: 79 (from todo_list.json)
+  Completed: 625 (from batch outputs)
+```
+
+**Usage:**
+```bash
+# First run - creates todo_list.origin backup
+dlazy batch --config global_config.yaml
+
+# Retry - creates incremental backup before replacing
+dlazy batch-retry-tasks --config global_config.yaml --run
+
+# Check status - shows accurate original task count
+dlazy batch-status --config global_config.yaml
+```
+
 ### v2.11.0 (2026-03-13)
 
 **New Features:**

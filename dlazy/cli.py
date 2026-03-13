@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 
 from . import __version__
+from .utils import get_existing_batch_count, get_next_backup_index
 
 
 def cmd_run(args):
@@ -263,6 +264,17 @@ def cmd_batch_status(args):
         todo_file = workdir / "todo_list.json"
         return count_lines(todo_file)
 
+    def get_original_task_count(workdir, state):
+        """从状态文件或 todo_list.origin 获取原始任务数"""
+        if state.get("original_task_count"):
+            return state["original_task_count"]
+
+        origin_file = workdir / "todo_list.origin"
+        if origin_file.exists():
+            return count_lines(origin_file)
+
+        return count_lines(workdir / "todo_list.json")
+
     def count_progress_errors(progress_file):
         """统计 progress 文件中的 error 行数"""
         if not progress_file.exists():
@@ -408,7 +420,7 @@ def cmd_batch_status(args):
         print("状态: 未初始化")
         return
 
-    total_original_tasks = get_total_tasks_from_todo(workdir)
+    total_original_tasks = get_original_task_count(workdir, state)
     batch_times = state.get("batch_times", {})
     completed_batch_indices = set(state.get("completed_batches", []))
 
@@ -646,12 +658,10 @@ def cmd_batch_retry_tasks(args):
     # 如果指定了 --run 参数，自动启动新批次
     if args.run:
         import shutil
-        from .utils import get_existing_batch_count
 
         existing_count = get_existing_batch_count(workdir)
         print(f"\n正在启动新批次，从 batch.{existing_count:05d} 开始...")
 
-        # 将 retry 文件重命名为 todo_list.json
         retry_file = (
             Path(args.output).resolve()
             if args.output
@@ -660,11 +670,12 @@ def cmd_batch_retry_tasks(args):
         todo_file = workdir / "todo_list.json"
 
         if retry_file.exists():
-            # 备份原始 todo_list.json
+            # 备份当前 todo_list.json
             if todo_file.exists():
-                backup_file = workdir / "todo_list.json.backup"
+                next_idx = get_next_backup_index(workdir)
+                backup_file = workdir / f"todo_list.origin.{next_idx:03d}"
                 shutil.copy(todo_file, backup_file)
-                print(f"已备份原始 todo_list.json 到 {backup_file}")
+                print(f"已备份当前任务列表到: {backup_file}")
 
             # 复制 retry 文件到 todo_list.json
             shutil.copy(retry_file, todo_file)
