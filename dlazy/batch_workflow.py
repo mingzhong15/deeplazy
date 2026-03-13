@@ -685,19 +685,31 @@ class BatchScheduler(WorkflowBase):
                     if overlap_file.exists():
                         olp_success_paths.add(task.path)
 
+            slurm_infer_dir = batch_dir / SLURM_SUBDIR_TEMPLATE.format("infer")
+            infer_tasks_file = slurm_infer_dir / "infer_tasks.jsonl"
+            infer_output_dir = batch_dir / OUTPUT_SUBDIR_TEMPLATE.format("infer")
+
+            if infer_tasks_file.exists() and infer_output_dir.exists():
+                infer_tasks = list(_read_jsonl(infer_tasks_file))
+                for task_info in infer_tasks:
+                    task_path = task_info.get("path", "")
+                    geth_path = Path(task_info.get("geth_path", ""))
+                    if task_path and geth_path.exists():
+                        ham_file = geth_path / HAMILTONIAN_FILENAME
+                        if ham_file.exists():
+                            infer_success_paths.add(task_path)
+
             slurm_calc_dir = batch_dir / SLURM_SUBDIR_TEMPLATE.format("calc")
             calc_tasks_file = slurm_calc_dir / CALC_TASKS_FILE
             calc_output_dir = batch_dir / OUTPUT_SUBDIR_TEMPLATE.format("calc")
 
-            if calc_tasks_file.exists():
+            if calc_tasks_file.exists() and calc_output_dir.exists():
                 calc_tasks = read_calc_tasks(calc_tasks_file)
                 for i, task in enumerate(calc_tasks):
-                    geth_path = Path(task.geth_path)
-                    if geth_path.exists():
-                        ham_file = geth_path / HAMILTONIAN_FILENAME
-                        if ham_file.exists():
-                            infer_success_paths.add(task.path)
-                            calc_success_paths.add(task.path)
+                    calc_task_dir = calc_output_dir / f"{TASK_DIR_PREFIX}.{i:06d}"
+                    calc_ham_file = calc_task_dir / "geth" / HAMILTONIAN_FILENAME
+                    if calc_ham_file.exists():
+                        calc_success_paths.add(task.path)
 
         calc_success = calc_success_paths & all_paths
         infer_success = infer_success_paths & all_paths

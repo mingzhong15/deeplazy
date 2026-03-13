@@ -133,6 +133,20 @@ See `examples/demo-workflow/global_config.yaml` for an example configuration fil
 
 ## Changelog
 
+### v2.9.8 (2026-03-13)
+
+**Critical Bug Fixes:**
+- **Fixed `batch-retry-tasks` statistics error** - Calc completion was incorrectly counting Infer outputs
+- Now correctly counts OLP/Infer/Calc outputs from actual output directories:
+  - OLP: `output_olp/task.*/overlaps.h5`
+  - Infer: `output_infer/*/geth/*/hamiltonians.h5`
+  - Calc: `output_calc/task.*/geth/hamiltonians.h5`
+
+**Statistics Accuracy:**
+- Previous version incorrectly reported Calc as 100% when only Infer completed
+- Now shows accurate completion rates for each stage
+- Correctly identifies which tasks need to be retried
+
 ### v2.9.7 (2026-03-13)
 
 **New Features:**
