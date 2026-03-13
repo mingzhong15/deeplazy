@@ -133,6 +133,32 @@ See `examples/demo-workflow/global_config.yaml` for an example configuration fil
 
 ## Changelog
 
+### v2.10.0 (2026-03-13)
+
+**New Features:**
+- **Stable release** - `batch-retry-tasks` command now provides accurate statistics
+- Comprehensive stage completion tracking across OLP/Infer/Calc
+- Automatic extraction of failed tasks for retry
+
+**Statistics Summary for test-v2.6:**
+- Total tasks: 704
+- OLP completed: 704 (100%)
+- Infer completed: 625 (88.8%) - 79 failed
+- Calc completed: 503 (79.0%) - 131 failed
+- Failed tasks saved to `todo_list_retry.json`: 210 tasks
+
+**Usage:**
+```bash
+# Extract failed tasks with detailed statistics
+dlazy batch-retry-tasks --config global_config.yaml
+
+# Output shows:
+# OLP   :  704 →  704 (100.0%) ✓
+# INFER :  704 →  625 ( 88.8%) - 79 failed
+# CALC  :  625 →  494 ( 79.0%) - 131 failed
+# 总计: 494/704 完成 (70.2%)
+```
+
 ### v2.9.9 (2026-03-13)
 
 **Bug Fixes:**
