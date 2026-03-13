@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "dlazy"
-version = "2.9.1"
+version = "2.9.6"
 description = "Material calculation workflow automation system"
 requires-python = ">=3.8"
 dependencies = [

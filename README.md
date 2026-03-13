@@ -133,6 +133,26 @@ See `examples/demo-workflow/global_config.yaml` for an example configuration fil
 
 ## Changelog
 
+### v2.9.6 (2026-03-13)
+
+**Critical Bug Fixes:**
+- **Fixed batch workflow error recovery mechanism** - Failed tasks are now correctly written to `error_tasks.jsonl`
+- All three stages (OLP/Infer/Calc) now properly record failed tasks for retry
+- Error records use unified JSONL format: `{"path": "...", "stage": "...", "error": "...", "batch_id": "...", "task_id": "...", "retry_count": 0}`
+- Failed tasks are now correctly forwarded to next batch for retry
+- Permanent error marking (after 3 retries) now works as designed
+
+**Architecture Improvements:**
+- Created unified error handling module (`dlazy/error_handler.py`)
+- `ErrorContext` and `record_error()` provide consistent error recording across all stages
+- Eliminated run/batch mode error handling discrepancy
+- All stages now use JSONL format for `error_tasks.jsonl`
+
+**Testing:**
+- Added `tests/test_error_recovery.py` for comprehensive error recovery testing
+- Unit tests cover OLP/Infer/Calc failure scenarios
+- Integration tests verify retry mechanism and permanent error marking
+
 ### v2.9.5 (2026-03-13)
 
 **Bug Fixes:**

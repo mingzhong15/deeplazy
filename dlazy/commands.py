@@ -292,6 +292,19 @@ class OLPCommandExecutor:
         except Exception as e:
             logger.error("OLP failed: %s", e)
             write_progress("error")
+            # 记录错误到error_tasks.jsonl
+            from .error_handler import ErrorContext, record_error
+
+            record_error(
+                ErrorContext(
+                    path=task.path,
+                    stage="olp",
+                    error=str(e),
+                    batch_index=resolver.batch_index,
+                    task_id=f"{task_index:06d}",
+                    resolver=resolver,
+                )
+            )
             raise
 
 
@@ -773,9 +786,22 @@ class InferCommandExecutor:
 
         except Exception as e:
             logger.error("Infer failed: %s", e)
-            for infer_task in infer_tasks:
+            # 记录整组失败到error_tasks.jsonl
+            from .error_handler import ErrorContext, record_error
+
+            for i, infer_task in enumerate(infer_tasks):
                 label = infer_task.path
                 write_progress(label, "error")
+                record_error(
+                    ErrorContext(
+                        path=label,
+                        stage="infer",
+                        error=f"Group {group_index} failed: {str(e)}",
+                        batch_index=resolver.batch_index,
+                        task_id=f"g{group_index:03d}_t{i:06d}",
+                        resolver=resolver,
+                    )
+                )
             raise
 
 
@@ -979,4 +1005,17 @@ class CalcCommandExecutor:
         except Exception as e:
             logger.error("Calc failed: %s", e)
             write_progress("error")
+            # 记录错误到error_tasks.jsonl
+            from .error_handler import ErrorContext, record_error
+
+            record_error(
+                ErrorContext(
+                    path=task.path,
+                    stage="calc",
+                    error=str(e),
+                    batch_index=resolver.batch_index,
+                    task_id=f"{task_index:06d}",
+                    resolver=resolver,
+                )
+            )
             return ("failed", label)
