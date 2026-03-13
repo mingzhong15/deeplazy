@@ -583,6 +583,29 @@ def cmd_batch_stop(args):
     scheduler.stop()
 
 
+def cmd_batch_retry_tasks(args):
+    """提取未完成任务"""
+    from .batch_workflow import BatchScheduler
+    from .contexts import BatchContext
+
+    config_path = Path(args.config).resolve()
+    workdir = Path(args.workdir).resolve() if args.workdir else config_path.parent
+
+    if not config_path.exists():
+        print(f"错误: 配置文件不存在: {config_path}", file=sys.stderr)
+        sys.exit(1)
+
+    ctx = BatchContext(
+        config_path=config_path,
+        workflow_root=workdir,
+        batch_size=100,
+    )
+
+    scheduler = BatchScheduler(ctx)
+    output_file = Path(args.output).resolve() if args.output else None
+    result = scheduler.extract_retry_tasks(output_file=output_file)
+
+
 def main():
     """CLI 主入口"""
     parser = argparse.ArgumentParser(
@@ -719,6 +742,22 @@ def main():
     )
     parser_batch_stop.add_argument("--workdir", help="工作目录")
     parser_batch_stop.set_defaults(func=cmd_batch_stop)
+
+    parser_batch_retry = subparsers.add_parser(
+        "batch-retry-tasks", help="提取未完成任务"
+    )
+    parser_batch_retry.add_argument(
+        "--config",
+        required=True,
+        help="Path to global_config.yaml",
+    )
+    parser_batch_retry.add_argument("--workdir", help="工作目录")
+    parser_batch_retry.add_argument(
+        "--output",
+        default="todo_list_retry.json",
+        help="Output file for retry tasks",
+    )
+    parser_batch_retry.set_defaults(func=cmd_batch_retry_tasks)
 
     args = parser.parse_args()
 

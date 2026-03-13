@@ -133,6 +133,27 @@ See `examples/demo-workflow/global_config.yaml` for an example configuration fil
 
 ## Changelog
 
+### v2.9.7 (2026-03-13)
+
+**New Features:**
+- Added `dlazy batch-retry-tasks` command to extract uncompleted tasks from batch workflow
+- Displays detailed completion statistics for all stages (OLP/Infer/Calc)
+- Automatically generates `todo_list_retry.json` for failed tasks
+
+**Improvements:**
+- Enhanced stage completion tracking with clear statistics
+- Better visibility into which tasks failed at which stage
+- Simplified retry workflow for incomplete batch calculations
+
+**Usage:**
+```bash
+# Extract failed tasks
+dlazy batch-retry-tasks --config global_config.yaml
+
+# Custom output file
+dlazy batch-retry-tasks --config global_config.yaml --output my_retry_list.json
+```
+
 ### v2.9.6 (2026-03-13)
 
 **Critical Bug Fixes:**

@@ -614,6 +614,152 @@ class BatchScheduler(WorkflowBase):
         except (ValueError, OSError) as e:
             print(f"停止失败: {e}")
 
+    def extract_retry_tasks(self, output_file: Optional[Path] = None) -> Dict[str, Any]:
+        """
+        提取未完成的任务列表
+
+        Args:
+            output_file: 输出文件路径，默认为 workflow_root / todo_list_retry.json
+
+        Returns:
+            {
+                'total': 704,
+                'completed': 625,
+                'failed': 79,
+                'stages': {
+                    'olp': {'input': 704, 'output': 704, 'failed': 0},
+                    'infer': {'input': 704, 'output': 634, 'failed': 70},
+                    'calc': {'input': 634, 'output': 503, 'failed': 131}
+                },
+                'output_file': 'todo_list_retry.json'
+            }
+        """
+        from .constants import (
+            OVERLAP_FILENAME,
+            HAMILTONIAN_FILENAME,
+            BATCH_DIR_PREFIX,
+            SLURM_SUBDIR_TEMPLATE,
+            OUTPUT_SUBDIR_TEMPLATE,
+            TASK_DIR_PREFIX,
+            CALC_TASKS_FILE,
+            OLP_TASKS_FILE,
+        )
+        from .record_utils import read_olp_tasks, read_calc_tasks
+
+        if output_file is None:
+            output_file = self.ctx.workflow_root / "todo_list_retry.json"
+        else:
+            output_file = Path(output_file)
+
+        todo_file = self.ctx.workflow_root / "todo_list.json"
+        if not todo_file.exists():
+            self.logger.warning("todo_list.json not found at %s", todo_file)
+            return {
+                "total": 0,
+                "completed": 0,
+                "failed": 0,
+                "stages": {},
+                "output_file": str(output_file),
+            }
+
+        all_tasks = list(_read_jsonl(todo_file))
+        all_paths = {t["path"] for t in all_tasks}
+        total_tasks = len(all_paths)
+
+        olp_success_paths = set()
+        infer_success_paths = set()
+        calc_success_paths = set()
+
+        batch_dirs = sorted(self.ctx.workflow_root.glob(f"{BATCH_DIR_PREFIX}.*"))
+
+        for batch_dir in batch_dirs:
+            slurm_olp_dir = batch_dir / SLURM_SUBDIR_TEMPLATE.format("olp")
+            olp_tasks_file = slurm_olp_dir / OLP_TASKS_FILE
+            olp_output_dir = batch_dir / OUTPUT_SUBDIR_TEMPLATE.format("olp")
+
+            if olp_tasks_file.exists() and olp_output_dir.exists():
+                olp_tasks = read_olp_tasks(olp_tasks_file)
+                for i, task in enumerate(olp_tasks):
+                    task_dir = olp_output_dir / f"{TASK_DIR_PREFIX}.{i:06d}"
+                    overlap_file = task_dir / OVERLAP_FILENAME
+                    if overlap_file.exists():
+                        olp_success_paths.add(task.path)
+
+            slurm_calc_dir = batch_dir / SLURM_SUBDIR_TEMPLATE.format("calc")
+            calc_tasks_file = slurm_calc_dir / CALC_TASKS_FILE
+            calc_output_dir = batch_dir / OUTPUT_SUBDIR_TEMPLATE.format("calc")
+
+            if calc_tasks_file.exists():
+                calc_tasks = read_calc_tasks(calc_tasks_file)
+                for i, task in enumerate(calc_tasks):
+                    geth_path = Path(task.geth_path)
+                    if geth_path.exists():
+                        ham_file = geth_path / HAMILTONIAN_FILENAME
+                        if ham_file.exists():
+                            infer_success_paths.add(task.path)
+                            calc_success_paths.add(task.path)
+
+        calc_success = calc_success_paths & all_paths
+        infer_success = infer_success_paths & all_paths
+        olp_success = olp_success_paths & all_paths
+
+        failed_paths = all_paths - calc_success
+
+        retry_tasks = [t for t in all_tasks if t["path"] in failed_paths]
+
+        output_file.parent.mkdir(parents=True, exist_ok=True)
+        with open(output_file, "w", encoding="utf-8") as f:
+            json.dump(retry_tasks, f, indent=2, ensure_ascii=False)
+
+        completed_count = len(calc_success)
+        failed_count = len(failed_paths)
+
+        stages = {
+            "olp": {
+                "input": total_tasks,
+                "output": len(olp_success),
+                "failed": total_tasks - len(olp_success),
+            },
+            "infer": {
+                "input": len(olp_success),
+                "output": len(infer_success),
+                "failed": len(olp_success) - len(infer_success),
+            },
+            "calc": {
+                "input": len(infer_success),
+                "output": len(calc_success),
+                "failed": len(infer_success) - len(calc_success),
+            },
+        }
+
+        print("\n=== 批量工作流完成情况统计 ===\n")
+        for stage_name, stats in stages.items():
+            inp = stats["input"]
+            out = stats["output"]
+            fail = stats["failed"]
+            pct = out / inp * 100 if inp > 0 else 0.0
+
+            if fail == 0:
+                status = "✓"
+            else:
+                status = f"- {fail} failed"
+
+            print(
+                f"{stage_name.upper():6s}: {inp:4d} → {out:4d} ({pct:5.1f}%) {status}"
+            )
+
+        pct_total = completed_count / total_tasks * 100 if total_tasks > 0 else 0.0
+        print(f"\n总计: {completed_count}/{total_tasks} 完成 ({pct_total:.1f}%)\n")
+        print(f"✓ 已保存 {len(retry_tasks)} 个未完成任务到: {output_file}\n")
+
+        return {
+            "total": total_tasks,
+            "completed": completed_count,
+            "failed": failed_count,
+            "stages": stages,
+            "output_file": str(output_file),
+        }
+
 
 class BatchWorkflowManager(BatchScheduler):
     """Legacy alias for BatchScheduler."""
