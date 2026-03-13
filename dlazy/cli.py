@@ -375,7 +375,7 @@ def cmd_batch_status(args):
                         pass
         return errors
 
-    def progress_bar(completed, total, width=20):
+    def progress_bar(completed, total, width=30):
         if total == 0:
             return "░" * width
         pct = completed / total
@@ -478,9 +478,9 @@ def cmd_batch_status(args):
     else:
         print(processed_str)
     print()
-    print("┌" + "─" * 52 + "┐")
-    print("│ 阶段  │ 完成  │ 成功  │ 失败  │ 进度                 │")
-    print("├" + "─" * 52 + "┤")
+    print("┌" + "─" * 62 + "┐")
+    print("│ 阶段  │ 完成  │ 成功  │ 失败  │ 进度                           │")
+    print("├" + "─" * 62 + "┤")
 
     olp_success = (
         total_olp_done - total_olp_errors
@@ -511,7 +511,7 @@ def cmd_batch_status(args):
     print(
         f"│ calc  │ {total_calc_done:5d} │ {calc_success:5d} │ {total_calc_errors:5d} │ {progress_bar(total_calc_done, total_for_progress)} │"
     )
-    print("└" + "─" * 52 + "┘")
+    print("└" + "─" * 62 + "┘")
 
     print()
     print("━" * 54)
@@ -635,8 +635,11 @@ def cmd_batch_stop(args):
 
 def cmd_batch_retry_tasks(args):
     """提取未完成任务"""
+    import json
+    import shutil
     from .batch_workflow import BatchScheduler
     from .contexts import BatchContext
+    from .utils import get_existing_batch_count, get_next_backup_index
 
     config_path = Path(args.config).resolve()
     workdir = Path(args.workdir).resolve() if args.workdir else config_path.parent
@@ -657,8 +660,6 @@ def cmd_batch_retry_tasks(args):
 
     # 如果指定了 --run 参数，自动启动新批次
     if args.run:
-        import shutil
-
         existing_count = get_existing_batch_count(workdir)
         print(f"\n正在启动新批次，从 batch.{existing_count:05d} 开始...")
 
@@ -681,7 +682,18 @@ def cmd_batch_retry_tasks(args):
             shutil.copy(retry_file, todo_file)
             print(f"已将 {retry_file} 复制到 {todo_file}")
 
-        # 启动新批次
+        # 启动新批次 - 重置状态以触发重新初始化
+        state_file = workdir / "batch_state.json"
+        if state_file.exists():
+            with open(state_file, "r", encoding="utf-8") as f:
+                state = json.load(f)
+            state["initialized"] = False
+            state["start_batch_index"] = existing_count
+            state["current_batch"] = existing_count
+            with open(state_file, "w", encoding="utf-8") as f:
+                json.dump(state, f, indent=2)
+            print(f"已重置状态，将从 batch.{existing_count:05d} 开始")
+
         ctx_run = BatchContext(
             config_path=config_path,
             workflow_root=workdir,

@@ -133,6 +133,25 @@ See `examples/demo-workflow/global_config.yaml` for an example configuration fil
 
 ## Changelog
 
+### v2.12.1 (2026-03-13)
+
+**Bug Fixes:**
+- **Fixed --run not creating new batches** - Now correctly resets `initialized=False` before starting retry batches
+- **State reset on retry** - Updates `start_batch_index` and `current_batch` to existing batch count
+
+**Improvements:**
+- **Progress bar width** - Increased from 20 to 30 characters for better visibility
+
+**Data Flow on --run:**
+```
+dlazy batch-retry-tasks --run:
+  1. Generate todo_list_retry.json
+  2. Backup todo_list.json → todo_list.origin.{idx}
+  3. Copy retry file to todo_list.json
+  4. Reset batch_state.json {initialized: false, start_batch_index: N}
+  5. Start new batches from batch.{N:05d}
+```
+
 ### v2.12.0 (2026-03-13)
 
 **Critical Data Flow Improvements:**
