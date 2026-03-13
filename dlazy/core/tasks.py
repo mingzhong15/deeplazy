@@ -1,11 +1,13 @@
-"""Unified record format utilities for batch workflow."""
+"""任务数据结构 - OLP/Infer/Calc 阶段任务定义"""
 
 from __future__ import annotations
 
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterator, List
+from typing import Iterator, List, TypeVar, Type
+
+T = TypeVar("T")
 
 
 @dataclass
@@ -52,39 +54,6 @@ class CalcTask:
         return cls(path=d["path"], geth_path=d["geth_path"])
 
 
-@dataclass
-class ErrorTask:
-    """Failed task record."""
-
-    path: str
-    stage: str
-    error: str
-    batch_id: str
-    task_id: str
-    retry_count: int = 0
-
-    def to_dict(self) -> dict:
-        return {
-            "path": self.path,
-            "stage": self.stage,
-            "error": self.error,
-            "batch_id": self.batch_id,
-            "task_id": self.task_id,
-            "retry_count": self.retry_count,
-        }
-
-    @classmethod
-    def from_dict(cls, d: dict) -> "ErrorTask":
-        return cls(
-            path=d["path"],
-            stage=d["stage"],
-            error=d["error"],
-            batch_id=d["batch_id"],
-            task_id=d["task_id"],
-            retry_count=d.get("retry_count", 0),
-        )
-
-
 def _read_jsonl(filepath: Path) -> Iterator[dict]:
     """Read JSON Lines file."""
     if not filepath.exists():
@@ -98,61 +67,70 @@ def _read_jsonl(filepath: Path) -> Iterator[dict]:
 
 def _write_jsonl(filepath: Path, records: List[dict], append: bool = False) -> None:
     """Write records to JSON Lines file."""
-    filepath.parent.mkdir(parents=True, exist_ok=True)
-    mode = "a" if append else "w"
-    with open(filepath, mode, encoding="utf-8") as f:
-        for record in records:
-            f.write(json.dumps(record, ensure_ascii=False) + "\n")
+    from dlazy.utils.concurrency import atomic_append_jsonl
+
+    if append:
+        atomic_append_jsonl(filepath, records)
+    else:
+        filepath.parent.mkdir(parents=True, exist_ok=True)
+        with open(filepath, "w", encoding="utf-8") as f:
+            for record in records:
+                f.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+
+def read_tasks(filepath: Path, task_cls: Type[T]) -> List[T]:
+    """Read tasks from JSON Lines file."""
+    return [task_cls.from_dict(d) for d in _read_jsonl(filepath)]
+
+
+def write_tasks(filepath: Path, tasks: List, append: bool = False) -> None:
+    """Write tasks to JSON Lines file."""
+    _write_jsonl(filepath, [t.to_dict() for t in tasks], append=append)
 
 
 def read_olp_tasks(filepath: Path) -> List[OlpTask]:
     """Read OLP tasks from JSON Lines file."""
-    return [OlpTask.from_dict(d) for d in _read_jsonl(filepath)]
+    return read_tasks(filepath, OlpTask)
 
 
 def write_olp_tasks(filepath: Path, tasks: List[OlpTask]) -> None:
     """Write OLP tasks to JSON Lines file."""
-    _write_jsonl(filepath, [t.to_dict() for t in tasks])
-
-
-def read_infer_tasks(filepath: Path) -> List[InferTask]:
-    """Read Infer tasks from JSON Lines file."""
-    return [InferTask.from_dict(d) for d in _read_jsonl(filepath)]
-
-
-def write_infer_tasks(filepath: Path, tasks: List[InferTask]) -> None:
-    """Write Infer tasks to JSON Lines file."""
-    _write_jsonl(filepath, [t.to_dict() for t in tasks])
-
-
-def append_infer_task(filepath: Path, task: InferTask) -> None:
-    """Append a single Infer task."""
-    _write_jsonl(filepath, [task.to_dict()], append=True)
-
-
-def read_calc_tasks(filepath: Path) -> List[CalcTask]:
-    """Read Calc tasks from JSON Lines file."""
-    return [CalcTask.from_dict(d) for d in _read_jsonl(filepath)]
-
-
-def write_calc_tasks(filepath: Path, tasks: List[CalcTask]) -> None:
-    """Write Calc tasks to JSON Lines file."""
-    _write_jsonl(filepath, [t.to_dict() for t in tasks])
-
-
-def append_calc_task(filepath: Path, task: CalcTask) -> None:
-    """Append a single Calc task."""
-    _write_jsonl(filepath, [task.to_dict()], append=True)
-
-
-def append_error_task(filepath: Path, task: ErrorTask) -> None:
-    """Append an error task."""
-    _write_jsonl(filepath, [task.to_dict()], append=True)
+    write_tasks(filepath, tasks)
 
 
 def append_olp_task(filepath: Path, task: OlpTask) -> None:
     """Append a single OLP task."""
-    _write_jsonl(filepath, [task.to_dict()], append=True)
+    write_tasks(filepath, [task], append=True)
+
+
+def read_infer_tasks(filepath: Path) -> List[InferTask]:
+    """Read Infer tasks from JSON Lines file."""
+    return read_tasks(filepath, InferTask)
+
+
+def write_infer_tasks(filepath: Path, tasks: List[InferTask]) -> None:
+    """Write Infer tasks to JSON Lines file."""
+    write_tasks(filepath, tasks)
+
+
+def append_infer_task(filepath: Path, task: InferTask) -> None:
+    """Append a single Infer task."""
+    write_tasks(filepath, [task], append=True)
+
+
+def read_calc_tasks(filepath: Path) -> List[CalcTask]:
+    """Read Calc tasks from JSON Lines file."""
+    return read_tasks(filepath, CalcTask)
+
+
+def write_calc_tasks(filepath: Path, tasks: List[CalcTask]) -> None:
+    """Write Calc tasks to JSON Lines file."""
+    write_tasks(filepath, tasks)
+
+
+def append_calc_task(filepath: Path, task: CalcTask) -> None:
+    """Append a single Calc task."""
+    write_tasks(filepath, [task], append=True)
 
 
 def count_tasks(filepath: Path) -> int:
@@ -160,16 +138,3 @@ def count_tasks(filepath: Path) -> int:
     if not filepath.exists():
         return 0
     return sum(1 for _ in _read_jsonl(filepath))
-
-
-def get_task_retry_count(workflow_root: Path, task_path: str) -> int:
-    """Count how many times a task has failed across all batches."""
-    count = 0
-    batch_dirs = sorted(workflow_root.glob("batch.*"))
-    for batch_dir in batch_dirs:
-        error_files = list(batch_dir.rglob("error_tasks.jsonl"))
-        for ef in error_files:
-            for d in _read_jsonl(ef):
-                if d.get("path") == task_path:
-                    count += 1
-    return count

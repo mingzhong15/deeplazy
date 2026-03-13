@@ -24,8 +24,8 @@ from .constants import (
     HAMLOG_FILE,
     MONITOR_STATE_FILE,
 )
-from .exceptions import AbortException, FailureType
-from .monitor import JobMonitor, MonitorConfig, TaskError
+from .core.exceptions import AbortException, FailureType
+from .core.workflow_state import JobMonitor, MonitorConfig, TaskError
 from .path_resolver import RunPathResolver
 from .template_generator import generate_submit_script
 from .utils import chunk_records, load_yaml_config, parse_folders_file

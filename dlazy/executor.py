@@ -20,7 +20,7 @@ from .constants import (
 )
 from .contexts import CalcContext, InferContext, OLPContext
 from .path_resolver import BatchPathResolver, PathResolver, RunPathResolver
-from .exceptions import AbortException, FailureType, NodeError
+from .core.exceptions import AbortException, FailureType, NodeError
 from .utils import (
     get_logger,
     get_result_geth_dir,
@@ -31,7 +31,7 @@ from .utils import (
 )
 
 if TYPE_CHECKING:
-    from .monitor import JobMonitor, TaskError
+    from .core.workflow_state import JobMonitor, TaskError
 
 
 class WorkflowExecutor:
@@ -113,7 +113,7 @@ class WorkflowExecutor:
             results = pool.map(execute_func, records)
 
         if monitor:
-            from .monitor import TaskError
+            from .core.workflow_state import TaskError
 
             for status, label in results:
                 if status in ["failed", "node_error"]:
@@ -282,7 +282,7 @@ class WorkflowExecutor:
             results = pool.map(execute_func, records)
 
         if monitor:
-            from .monitor import TaskError
+            from .core.workflow_state import TaskError
 
             for status, label in results:
                 if status in ["failed", "node_error"]:

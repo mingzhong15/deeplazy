@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, Optional
 
 if TYPE_CHECKING:
-    from .monitor import JobMonitor
+    from .core.workflow_state import JobMonitor
 
 
 @dataclass

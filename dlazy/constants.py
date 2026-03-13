@@ -110,7 +110,7 @@ MAX_RETRY_COUNT = 3  # Maximum retry count for failed tasks
 # ============================================
 # Monitor Configuration
 # ============================================
-from dlazy.exceptions import FailureType
+from dlazy.core.exceptions import FailureType
 
 DEFAULT_MAX_RETRIES = {
     FailureType.SUBMIT_FAILED: 0,

@@ -9,17 +9,27 @@ import shutil
 import subprocess
 from pathlib import Path
 from threading import Thread
-from typing import TYPE_CHECKING, Dict, Tuple, Any, List
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 
-from .utils import (
-    validate_h5,
-    ensure_directory,
-    write_text,
-    run_subprocess,
-    generate_random_paths,
-    get_logger,
-    get_batch_dir,
-    get_task_dir,
+from dlazy.utils.security import validate_path, run_command_safe, safe_format_command
+from dlazy.utils.concurrency import ensure_directory
+from dlazy.core.tasks import (
+    OlpTask,
+    InferTask,
+    CalcTask,
+    write_olp_tasks,
+    read_olp_tasks,
+    write_infer_tasks,
+    read_infer_tasks,
+    write_calc_tasks,
+    read_calc_tasks,
+)
+from dlazy.core.workflow_state import ErrorTask, append_error_task
+from dlazy.core.exceptions import (
+    TransformError,
+    InferError,
+    GroupNotFoundError,
+    HamiltonianNotFoundError,
 )
 from .constants import (
     OVERLAP_FILENAME,
@@ -45,24 +55,14 @@ from .constants import (
     TASK_PADDING,
     PROGRESS_FILE,
 )
-from .record_utils import (
-    OlpTask,
-    InferTask,
-    CalcTask,
-    ErrorTask,
-    write_olp_tasks,
-    read_olp_tasks,
-    write_infer_tasks,
-    read_infer_tasks,
-    write_calc_tasks,
-    read_calc_tasks,
-    append_error_task,
-)
-from .exceptions import (
-    TransformError,
-    InferError,
-    GroupNotFoundError,
-    HamiltonianNotFoundError,
+from .utils import (
+    validate_h5,
+    write_text,
+    run_subprocess,
+    generate_random_paths,
+    get_logger,
+    get_batch_dir,
+    get_task_dir,
 )
 
 if TYPE_CHECKING:
@@ -130,11 +130,12 @@ class OLPCommandExecutor:
             ntasks = ctx.num_cores // ctx.max_processes
 
             # 1. 创建输入文件
-            command_create = ctx.config["commands"]["create_infile"].format(
-                poscar=path,
-                scf=scf_path,
+            run_command_safe(
+                ctx.config["commands"]["create_infile"],
+                args={"poscar": path, "scf": str(scf_path)},
+                cwd=scf_path,
+                check=True,
             )
-            subprocess.run(command_create, env=env, shell=True, check=True, text=True)
 
             # 2. 运行OpenMX（带节点错误检测）
             os.chdir(scf_path)
@@ -150,8 +151,12 @@ class OLPCommandExecutor:
 
             # 3. 提取overlap
             os.chdir(geth_path)
-            command_get = ctx.config["commands"]["extract_overlap"].format(scf=scf_path)
-            subprocess.run(command_get, env=env, shell=True, check=True, text=True)
+            run_command_safe(
+                ctx.config["commands"]["extract_overlap"],
+                args={"scf": str(scf_path)},
+                cwd=geth_path,
+                check=True,
+            )
 
             # 4. 验证结果
             overlaps_file = geth_path / OVERLAP_FILENAME
@@ -182,7 +187,7 @@ class OLPCommandExecutor:
         Returns:
             True if node error detected, False otherwise
         """
-        command = command_template.format(ntasks=ntasks)
+        command = safe_format_command(command_template, ntasks=ntasks)
 
         proc = subprocess.Popen(
             command,
@@ -253,14 +258,17 @@ class OLPCommandExecutor:
         try:
             env = os.environ.copy()
 
-            command_create = config["commands"]["create_infile"].format(
-                poscar=task.path,
-                scf=task_dir,
+            run_command_safe(
+                config["commands"]["create_infile"],
+                args={"poscar": task.path, "scf": str(task_dir)},
+                cwd=task_dir,
+                check=True,
             )
-            subprocess.run(command_create, env=env, shell=True, check=True, text=True)
 
             os.chdir(task_dir)
-            command_openmx = config["commands"]["run_openmx"].format(ntasks=1)
+            command_openmx = safe_format_command(
+                config["commands"]["run_openmx"], ntasks=1
+            )
             with open("openmx.std", "w", encoding="utf-8") as f:
                 subprocess.run(
                     command_openmx,
@@ -271,8 +279,12 @@ class OLPCommandExecutor:
                     text=True,
                 )
 
-            command_extract = config["commands"]["extract_overlap"].format(scf=task_dir)
-            subprocess.run(command_extract, env=env, shell=True, check=True, text=True)
+            run_command_safe(
+                config["commands"]["extract_overlap"],
+                args={"scf": str(task_dir)},
+                cwd=task_dir,
+                check=True,
+            )
 
             overlaps_file = task_dir / OVERLAP_FILENAME
             ok, message = validate_h5(overlaps_file)
@@ -835,11 +847,12 @@ class CalcCommandExecutor:
             env = os.environ.copy()
 
             # 1. 创建输入文件
-            command_create = ctx.config["commands"]["create_infile"].format(
-                poscar=label,
-                scf=scf_path,
+            run_command_safe(
+                ctx.config["commands"]["create_infile"],
+                args={"poscar": label, "scf": str(scf_path)},
+                cwd=scf_path,
+                check=True,
             )
-            subprocess.run(command_create, env=env, shell=True, check=True, text=True)
 
             # 2. 链接哈密顿量
             ham_file = Path(hampath) / HAMILTONIAN_FILENAME
@@ -852,17 +865,24 @@ class CalcCommandExecutor:
 
             # 3. 运行计算
             os.chdir(scf_path)
-            command_run = ctx.config["commands"]["run_openmx"]
-            subprocess.run(command_run, env=env, shell=True, text=True)
+            run_command_safe(
+                ctx.config["commands"]["run_openmx"],
+                cwd=scf_path,
+            )
 
-            # 后处理
-            subprocess.run("cat openmx.out >> openmx.scfout", shell=True, text=True)
-            subprocess.run("rm -rf openmx_rst", shell=True, text=True)
+            # 后处理 - 使用非 shell 方式
+            with open("openmx.scfout", "a", encoding="utf-8") as outf:
+                with open("openmx.out", "r", encoding="utf-8") as inf:
+                    outf.write(inf.read())
+            if Path("openmx_rst").exists():
+                shutil.rmtree("openmx_rst")
 
             # 4. 检查SCF收敛
-            command_check = ctx.config["commands"]["check_conv"].format(scf=scf_path)
-            result = subprocess.run(
-                command_check, env=env, shell=True, capture_output=True, text=True
+            result = run_command_safe(
+                ctx.config["commands"]["check_conv"],
+                args={"scf": str(scf_path)},
+                cwd=scf_path,
+                capture_output=True,
             )
 
             if "False" in result.stdout:
@@ -873,10 +893,11 @@ class CalcCommandExecutor:
 
             # 5. 提取哈密顿量
             os.chdir(geth_path)
-            command_extract = ctx.config["commands"]["extract_hamiltonian"].format(
-                scf=scf_path
+            run_command_safe(
+                ctx.config["commands"]["extract_hamiltonian"],
+                args={"scf": str(scf_path)},
+                cwd=geth_path,
             )
-            subprocess.run(command_extract, env=env, shell=True, text=True)
 
             # 6. 验证结果
             hamiltonians_file = geth_path / HAMILTONIAN_FILENAME
@@ -942,11 +963,12 @@ class CalcCommandExecutor:
         try:
             env = os.environ.copy()
 
-            command_create = config["commands"]["create_infile"].format(
-                poscar=task.path,
-                scf=scf_dir,
+            run_command_safe(
+                config["commands"]["create_infile"],
+                args={"poscar": task.path, "scf": str(scf_dir)},
+                cwd=scf_dir,
+                check=True,
             )
-            subprocess.run(command_create, env=env, shell=True, check=True, text=True)
 
             infer_geth_dir = Path(task.geth_path)
             pred_ham = infer_geth_dir / HAMILTONIAN_FILENAME
@@ -959,23 +981,25 @@ class CalcCommandExecutor:
             os.symlink(pred_ham, target_ham)
 
             os.chdir(scf_dir)
-            command_run = config["commands"]["run_openmx"]
             with open("openmx.std", "a", encoding="utf-8") as f:
-                subprocess.run(
-                    command_run,
-                    env=env,
-                    shell=True,
-                    stdout=f,
-                    stderr=subprocess.STDOUT,
-                    text=True,
+                run_command_safe(
+                    config["commands"]["run_openmx"],
+                    cwd=scf_dir,
+                    capture_output=False,
                 )
 
-            subprocess.run("cat openmx.out >> openmx.scfout", shell=True, text=True)
-            subprocess.run("rm -rf openmx_rst", shell=True, text=True)
+            # 使用非 shell 方式处理后处理
+            with open("openmx.scfout", "a", encoding="utf-8") as outf:
+                with open("openmx.out", "r", encoding="utf-8") as inf:
+                    outf.write(inf.read())
+            if Path("openmx_rst").exists():
+                shutil.rmtree("openmx_rst")
 
-            command_check = config["commands"]["check_conv"].format(scf=scf_dir)
-            result = subprocess.run(
-                command_check, env=env, shell=True, capture_output=True, text=True
+            result = run_command_safe(
+                config["commands"]["check_conv"],
+                args={"scf": str(scf_dir)},
+                cwd=scf_dir,
+                capture_output=True,
             )
 
             if "False" in result.stdout:
@@ -985,10 +1009,11 @@ class CalcCommandExecutor:
                 return ("failed", label)
 
             os.chdir(geth_dir)
-            command_extract = config["commands"]["extract_hamiltonian"].format(
-                scf=scf_dir
+            run_command_safe(
+                config["commands"]["extract_hamiltonian"],
+                args={"scf": str(scf_dir)},
+                cwd=geth_dir,
             )
-            subprocess.run(command_extract, env=env, shell=True, text=True)
 
             hamiltonians_file = geth_dir / HAMILTONIAN_FILENAME
             ok, message = validate_h5(hamiltonians_file)

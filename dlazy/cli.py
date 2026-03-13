@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 
 from . import __version__
+from .utils.security import validate_path
 from .utils import get_existing_batch_count, get_next_backup_index
 
 
@@ -15,12 +16,12 @@ def cmd_run(args):
     """运行工作流"""
     from .workflow import WorkflowManager
 
-    config_path = Path(args.config).resolve()
-    workdir = Path(args.workdir).resolve() if args.workdir else config_path.parent
-
-    if not config_path.exists():
-        print(f"错误: 配置文件不存在: {config_path}", file=sys.stderr)
-        sys.exit(1)
+    config_path = validate_path(args.config, must_exist=True)
+    workdir = (
+        validate_path(args.workdir, base_dir=config_path.parent)
+        if args.workdir
+        else config_path.parent
+    )
 
     manager = WorkflowManager(config_path=config_path, workdir=workdir)
     manager.run(daemon=args.daemon)
@@ -30,12 +31,12 @@ def cmd_status(args):
     """查看状态"""
     from .workflow import WorkflowManager
 
-    config_path = Path(args.config).resolve()
-    workdir = Path(args.workdir).resolve() if args.workdir else config_path.parent
-
-    if not config_path.exists():
-        print(f"错误: 配置文件不存在: {config_path}", file=sys.stderr)
-        sys.exit(1)
+    config_path = validate_path(args.config, must_exist=True)
+    workdir = (
+        validate_path(args.workdir, base_dir=config_path.parent)
+        if args.workdir
+        else config_path.parent
+    )
 
     manager = WorkflowManager(config_path=config_path, workdir=workdir)
     manager.show_status()
@@ -45,8 +46,12 @@ def cmd_stop(args):
     """停止运行"""
     from .workflow import WorkflowManager
 
-    config_path = Path(args.config).resolve()
-    workdir = Path(args.workdir).resolve() if args.workdir else config_path.parent
+    config_path = validate_path(args.config, must_exist=True)
+    workdir = (
+        validate_path(args.workdir, base_dir=config_path.parent)
+        if args.workdir
+        else config_path.parent
+    )
 
     manager = WorkflowManager(config_path=config_path, workdir=workdir)
     manager.stop()
@@ -56,8 +61,12 @@ def cmd_restart(args):
     """重新开始"""
     from .workflow import WorkflowManager
 
-    config_path = Path(args.config).resolve()
-    workdir = Path(args.workdir).resolve() if args.workdir else config_path.parent
+    config_path = validate_path(args.config, must_exist=True)
+    workdir = (
+        validate_path(args.workdir, base_dir=config_path.parent)
+        if args.workdir
+        else config_path.parent
+    )
 
     manager = WorkflowManager(config_path=config_path, workdir=workdir)
     manager.restart(daemon=args.daemon)
@@ -67,8 +76,12 @@ def cmd_olp(args):
     """执行 OLP 阶段"""
     from .executor import WorkflowExecutor
 
-    config_path = Path(args.config).resolve()
-    workdir = Path(args.workdir).resolve() if args.workdir else config_path.parent
+    config_path = validate_path(args.config, must_exist=True)
+    workdir = (
+        validate_path(args.workdir, base_dir=config_path.parent)
+        if args.workdir
+        else config_path.parent
+    )
 
     result = WorkflowExecutor.run_olp_stage(
         global_config=str(config_path),
@@ -83,8 +96,12 @@ def cmd_infer(args):
     """执行 Infer 阶段"""
     from .executor import WorkflowExecutor
 
-    config_path = Path(args.config).resolve()
-    workdir = Path(args.workdir).resolve() if args.workdir else config_path.parent
+    config_path = validate_path(args.config, must_exist=True)
+    workdir = (
+        validate_path(args.workdir, base_dir=config_path.parent)
+        if args.workdir
+        else config_path.parent
+    )
 
     result = WorkflowExecutor.run_infer_stage(
         global_config=str(config_path),
@@ -98,8 +115,12 @@ def cmd_calc(args):
     """执行 Calc 阶段"""
     from .executor import WorkflowExecutor
 
-    config_path = Path(args.config).resolve()
-    workdir = Path(args.workdir).resolve() if args.workdir else config_path.parent
+    config_path = validate_path(args.config, must_exist=True)
+    workdir = (
+        validate_path(args.workdir, base_dir=config_path.parent)
+        if args.workdir
+        else config_path.parent
+    )
 
     result = WorkflowExecutor.run_calc_stage(
         global_config=str(config_path),
@@ -114,11 +135,7 @@ def cmd_validate(args):
     """验证配置文件"""
     from .utils import load_yaml_config
 
-    config_path = Path(args.config).resolve()
-
-    if not config_path.exists():
-        print(f"错误: 配置文件不存在: {config_path}", file=sys.stderr)
-        sys.exit(1)
+    config_path = validate_path(args.config, must_exist=True)
 
     try:
         config = load_yaml_config(config_path)
@@ -151,12 +168,12 @@ def cmd_batch(args):
     from .contexts import BatchContext
     from .utils import get_existing_batch_count
 
-    config_path = Path(args.config).resolve()
-    workdir = Path(args.workdir).resolve() if args.workdir else config_path.parent
-
-    if not config_path.exists():
-        print(f"错误: 配置文件不存在: {config_path}", file=sys.stderr)
-        sys.exit(1)
+    config_path = validate_path(args.config, must_exist=True)
+    workdir = (
+        validate_path(args.workdir, base_dir=config_path.parent)
+        if args.workdir
+        else config_path.parent
+    )
 
     # 检查已有batch目录，决定处理方式
     existing_count = get_existing_batch_count(workdir)
@@ -382,8 +399,12 @@ def cmd_batch_status(args):
         filled = int(width * pct)
         return "█" * filled + "░" * (width - filled)
 
-    config_path = Path(args.config).resolve()
-    workdir = Path(args.workdir).resolve() if args.workdir else config_path.parent
+    config_path = validate_path(args.config, must_exist=True)
+    workdir = (
+        validate_path(args.workdir, base_dir=config_path.parent)
+        if args.workdir
+        else config_path.parent
+    )
 
     print("=== 批量工作流状态 ===")
 
@@ -620,8 +641,12 @@ def cmd_batch_stop(args):
     from .batch_workflow import BatchScheduler
     from .contexts import BatchContext
 
-    config_path = Path(args.config).resolve()
-    workdir = Path(args.workdir).resolve() if args.workdir else config_path.parent
+    config_path = validate_path(args.config, must_exist=True)
+    workdir = (
+        validate_path(args.workdir, base_dir=config_path.parent)
+        if args.workdir
+        else config_path.parent
+    )
 
     ctx = BatchContext(
         config_path=config_path,
@@ -641,12 +666,12 @@ def cmd_batch_retry_tasks(args):
     from .contexts import BatchContext
     from .utils import get_existing_batch_count, get_next_backup_index
 
-    config_path = Path(args.config).resolve()
-    workdir = Path(args.workdir).resolve() if args.workdir else config_path.parent
-
-    if not config_path.exists():
-        print(f"错误: 配置文件不存在: {config_path}", file=sys.stderr)
-        sys.exit(1)
+    config_path = validate_path(args.config, must_exist=True)
+    workdir = (
+        validate_path(args.workdir, base_dir=config_path.parent)
+        if args.workdir
+        else config_path.parent
+    )
 
     ctx = BatchContext(
         config_path=config_path,
@@ -655,7 +680,7 @@ def cmd_batch_retry_tasks(args):
     )
 
     scheduler = BatchScheduler(ctx)
-    output_file = Path(args.output).resolve() if args.output else None
+    output_file = validate_path(args.output, base_dir=workdir) if args.output else None
     result = scheduler.extract_retry_tasks(output_file=output_file)
 
     # 如果指定了 --run 参数，自动启动新批次

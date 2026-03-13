@@ -5,6 +5,9 @@ import math
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from .utils.security import validate_path, validate_template_string
+from .utils.security import validate_command_template
+
 
 def _format_modules(modules: List[str]) -> str:
     """Format module load commands."""
@@ -654,6 +657,30 @@ def generate_submit_script(
     Returns:
         Path to generated script
     """
+    # 验证路径参数
+    if tasks_file:
+        validate_path(tasks_file, must_exist=True)
+    if workdir:
+        validate_path(workdir)
+    if workflow_root:
+        validate_path(workflow_root)
+    if config_path:
+        validate_path(config_path, must_exist=True)
+
+    # 验证命令模板安全性
+    commands = stage_config.get("commands", {})
+    for cmd_name, cmd_template in commands.items():
+        if isinstance(cmd_template, str):
+            validate_command_template(cmd_template)
+            validate_template_string(cmd_template)
+
+    # 验证 Python 路径
+    if python_path:
+        try:
+            validate_path(python_path, must_exist=True)
+        except Exception:
+            pass
+
     slurm_config = stage_config.get("slurm", {})
 
     if stage_name == "0olp":

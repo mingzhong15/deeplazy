@@ -133,6 +133,49 @@ See `examples/demo-workflow/global_config.yaml` for an example configuration fil
 
 ## Changelog
 
+### v2.11.0 (2026-03-13)
+
+**Major Refactoring: Module Consolidation**
+
+Unified error handling and utility modules for better maintainability and reduced code duplication.
+
+**New Module Structure:**
+```
+dlazy/
+├── core/                     # Core modules
+│   ├── exceptions.py         # Unified exception hierarchy
+│   ├── tasks.py              # Task data structures (OlpTask, InferTask, CalcTask)
+│   └── workflow_state.py     # Monitoring + Error handling + Retry logic
+│
+├── utils/                    # Utility modules
+│   ├── security.py           # Path/command validation + Config validation
+│   ├── concurrency.py        # File locks + Atomic operations + PID locks
+│   ├── slurm_cache.py        # SLURM state caching
+│   ├── performance.py        # Performance monitoring
+│   └── common.py             # Common utility functions
+```
+
+**Merged Modules:**
+| Before | After |
+|--------|-------|
+| exceptions.py, error_handler.py, monitor.py, record_utils.py | core/exceptions.py, core/workflow_state.py, core/tasks.py |
+| security.py, config_validator.py | utils/security.py |
+| file_lock.py, pid_lock.py, optimized_commands.py | utils/concurrency.py |
+| utils.py | utils/common.py |
+
+**Key Improvements:**
+- `ErrorTask` + `TaskError` → unified `ErrorRecord` class
+- `AbortException` now inherits from `WorkflowError` for consistent error handling
+- File locks and PID locks consolidated in single module
+- Security validation and config validation merged
+- All old APIs preserved via aliases for backward compatibility
+
+**Benefits:**
+- Reduced module count: 16 → 11
+- Eliminated code duplication across error handling
+- Clearer module responsibilities
+- Easier maintenance and testing
+
 ### v2.14.1 (2026-03-13)
 
 **Bug Fix: SLURM Job Submission Retry**

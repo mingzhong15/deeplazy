@@ -9,8 +9,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, Optional
 
 from .constants import DEFAULT_MAX_RETRIES, MONITOR_STATE_FILE
-from .exceptions import FailureType
-from .monitor import JobMonitor, MonitorConfig, TaskError
+from .core.exceptions import FailureType
+from .core.workflow_state import JobMonitor, MonitorConfig, TaskError
 
 if TYPE_CHECKING:
     pass

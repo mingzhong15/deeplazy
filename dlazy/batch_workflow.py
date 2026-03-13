@@ -23,18 +23,19 @@ from .constants import (
     MONITOR_STATE_FILE,
 )
 from .contexts import BatchContext
-from .exceptions import AbortException
-from .path_resolver import BatchPathResolver
-from .record_utils import (
+from .core.exceptions import AbortException
+from .core import (
     ErrorTask,
     OlpTask,
-    _read_jsonl,
     append_error_task,
     append_olp_task,
     count_tasks,
     get_task_retry_count,
     write_olp_tasks,
 )
+from .core.tasks import _read_jsonl
+from .utils.concurrency import atomic_write_json, FileLock
+from .path_resolver import BatchPathResolver
 from .template_generator import generate_submit_script
 from .utils import (
     ensure_directory,
@@ -131,8 +132,8 @@ class BatchScheduler(WorkflowBase):
         if batch_key not in state["batch_times"]:
             state["batch_times"][batch_key] = {"start": datetime.now().isoformat()}
 
-        with open(self.ctx.state_file, "w", encoding="utf-8") as f:
-            json.dump(state, f, indent=2)
+        # 使用原子写入
+        atomic_write_json(self.ctx.state_file, state)
 
     def _get_path_resolver(self, batch_index: int) -> BatchPathResolver:
         """Get PathResolver for a specific batch."""
@@ -585,28 +586,33 @@ class BatchScheduler(WorkflowBase):
         return self._count_batch_tasks(resolver) > 0
 
     def _write_pid(self) -> None:
-        """Write PID file."""
+        """Write PID file with lock."""
         pid_file = self.ctx.workflow_root / BATCH_PID_FILE
-        with open(pid_file, "w") as f:
-            f.write(str(os.getpid()))
+        pid_file.parent.mkdir(parents=True, exist_ok=True)
+        with FileLock(pid_file):
+            with open(pid_file, "w") as f:
+                f.write(str(os.getpid()))
 
     def _remove_pid(self) -> None:
-        """Remove PID file."""
+        """Remove PID file with lock."""
         pid_file = self.ctx.workflow_root / BATCH_PID_FILE
         if pid_file.exists():
-            pid_file.unlink()
+            with FileLock(pid_file):
+                if pid_file.exists():
+                    pid_file.unlink()
 
     def _is_running(self) -> bool:
-        """Check if another instance is running."""
+        """Check if another instance is running with lock."""
         pid_file = self.ctx.workflow_root / BATCH_PID_FILE
         if not pid_file.exists():
             return False
         try:
-            with open(pid_file, "r") as f:
-                pid = int(f.read().strip())
-            os.kill(pid, 0)
-            return True
-        except (ValueError, OSError):
+            with FileLock(pid_file, timeout=1.0):
+                with open(pid_file, "r") as f:
+                    pid = int(f.read().strip())
+                os.kill(pid, 0)
+                return True
+        except (ValueError, OSError, TimeoutError):
             return False
 
     def run(self) -> Dict[str, Any]:
@@ -788,10 +794,13 @@ class BatchScheduler(WorkflowBase):
             return
 
         try:
-            with open(pid_file, "r") as f:
-                pid = int(f.read().strip())
-            os.kill(pid, signal.SIGTERM)
-            print(f"已发送停止信号到进程 {pid}")
+            with FileLock(pid_file, timeout=5.0):
+                with open(pid_file, "r") as f:
+                    pid = int(f.read().strip())
+                os.kill(pid, signal.SIGTERM)
+                print(f"已发送停止信号到进程 {pid}")
+        except TimeoutError:
+            print("获取锁超时，可能进程正在退出")
         except (ValueError, OSError) as e:
             print(f"停止失败: {e}")
 
@@ -825,7 +834,7 @@ class BatchScheduler(WorkflowBase):
             CALC_TASKS_FILE,
             OLP_TASKS_FILE,
         )
-        from .record_utils import read_olp_tasks, read_calc_tasks
+        from .core.tasks import read_olp_tasks, read_calc_tasks
 
         if output_file is None:
             output_file = self.ctx.workflow_root / "todo_list_retry.json"

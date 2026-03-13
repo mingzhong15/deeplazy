@@ -2,13 +2,15 @@
 
 from .executor import WorkflowExecutor
 from .contexts import OLPContext, InferContext, CalcContext, BatchContext
-from .exceptions import (
+from .core.exceptions import (
     WorkflowError,
     ConfigError,
     NodeError,
     CalculationError,
     TransformError,
     InferError,
+    SecurityError,
+    ResourceError,
     GroupNotFoundError,
     HamiltonianNotFoundError,
     FailureType,
@@ -16,7 +18,7 @@ from .exceptions import (
 )
 from .path_resolver import PathResolver, RunPathResolver, BatchPathResolver
 
-__version__ = "2.10.0"
+__version__ = "2.11.0"
 __all__ = [
     "WorkflowExecutor",
     "OLPContext",
@@ -29,6 +31,8 @@ __all__ = [
     "CalculationError",
     "TransformError",
     "InferError",
+    "SecurityError",
+    "ResourceError",
     "GroupNotFoundError",
     "HamiltonianNotFoundError",
     "FailureType",

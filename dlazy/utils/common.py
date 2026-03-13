@@ -19,7 +19,7 @@ try:
 except ImportError:
     h5py = None
 
-from .constants import (
+from ..constants import (
     FOLDERS_FILE,
     HAMLOG_FILE,
     ERROR_FILE,
@@ -227,10 +227,26 @@ def load_json_config(path: Path) -> Dict[str, Any]:
         return json.load(handle)
 
 
-def load_yaml_config(path: Path) -> Dict[str, Any]:
-    """加载 YAML 配置"""
+_config_cache: Dict[str, Tuple[float, Dict[str, Any]]] = {}
+
+
+def load_yaml_config(path: Path, use_cache: bool = True) -> Dict[str, Any]:
+    """加载 YAML 配置，支持基于 mtime 的缓存"""
+    path_str = str(path.resolve())
+
+    if use_cache and path_str in _config_cache:
+        cached_mtime, cached_config = _config_cache[path_str]
+        current_mtime = path.stat().st_mtime
+        if current_mtime == cached_mtime:
+            return cached_config
+
     with open(path, "r", encoding="utf-8") as handle:
-        return yaml.safe_load(handle)
+        config = yaml.safe_load(handle)
+
+    if use_cache:
+        _config_cache[path_str] = (path.stat().st_mtime, config)
+
+    return config
 
 
 def resolve_path(base_dir: Path, raw_path: str | Path) -> Path:
