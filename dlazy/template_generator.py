@@ -140,7 +140,7 @@ import json
 from pathlib import Path
 from dlazy.path_resolver import BatchPathResolver
 from dlazy.commands import OLPCommandExecutor
-from dlazy.record_utils import read_olp_tasks, append_infer_task, InferTask
+from dlazy.core.tasks import read_olp_tasks, append_infer_task, InferTask
 from dlazy.utils import load_global_config_section
 
 def parse_batch_index(workdir):
@@ -320,7 +320,7 @@ import random
 from pathlib import Path
 from dlazy.path_resolver import BatchPathResolver
 from dlazy.commands import InferCommandExecutor
-from dlazy.record_utils import read_infer_tasks, append_calc_task
+from dlazy.core.tasks import read_infer_tasks, append_calc_task
 from dlazy.utils import load_global_config_section
 
 def parse_batch_index(workdir):
@@ -522,7 +522,7 @@ import json
 from pathlib import Path
 from dlazy.path_resolver import BatchPathResolver
 from dlazy.commands import CalcCommandExecutor
-from dlazy.record_utils import read_calc_tasks
+from dlazy.core.tasks import read_calc_tasks
 from dlazy.utils import load_global_config_section
 
 def parse_batch_index(workdir):

@@ -280,6 +280,10 @@ class WorkflowMonitor:
         """获取错误数量"""
         return len(self.get_errors(stage))
 
+    def report_error(self, error: ErrorRecord) -> None:
+        """兼容旧API的别名 - report error"""
+        return self.record_error(error)
+
 
 # 兼容性别名
 JobMonitor = WorkflowMonitor

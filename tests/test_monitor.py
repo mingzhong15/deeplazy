@@ -5,13 +5,13 @@ from datetime import datetime
 
 import pytest
 
-from dlazy.exceptions import FailureType
+from dlazy.core.exceptions import FailureType
 
 
 class TestMonitorConfig:
     def test_default_config(self):
         from dlazy.constants import DEFAULT_MAX_RETRIES
-        from dlazy.monitor import MonitorConfig
+        from dlazy.core.workflow_state import MonitorConfig
 
         config = MonitorConfig(max_retries=DEFAULT_MAX_RETRIES)
         assert config.max_retries[FailureType.SUBMIT_FAILED] == 0
@@ -20,7 +20,7 @@ class TestMonitorConfig:
 
 class TestMonitorState:
     def test_init(self):
-        from dlazy.monitor import MonitorState
+        from dlazy.core.workflow_state import MonitorState
 
         state = MonitorState()
         assert state.job_id is None
@@ -28,7 +28,7 @@ class TestMonitorState:
         assert state.retry_counts == {}
 
     def test_to_dict(self):
-        from dlazy.monitor import MonitorState
+        from dlazy.core.workflow_state import MonitorState
 
         state = MonitorState(job_id="12345", abort_flag=True, abort_reason="test")
         data = state.to_dict()
@@ -36,7 +36,7 @@ class TestMonitorState:
         assert data["abort_flag"] is True
 
     def test_from_dict(self):
-        from dlazy.monitor import MonitorState
+        from dlazy.core.workflow_state import MonitorState
 
         data = {"job_id": "12345", "abort_flag": True, "abort_reason": "test"}
         state = MonitorState.from_dict(data)
@@ -46,7 +46,7 @@ class TestMonitorState:
 
 class TestTaskError:
     def test_init(self):
-        from dlazy.monitor import TaskError
+        from dlazy.core.workflow_state import TaskError
 
         error = TaskError(
             stage="0olp",
@@ -61,7 +61,7 @@ class TestTaskError:
 class TestJobMonitor:
     def test_init(self):
         from dlazy.constants import DEFAULT_MAX_RETRIES
-        from dlazy.monitor import JobMonitor, MonitorConfig
+        from dlazy.core.workflow_state import JobMonitor, MonitorConfig
 
         config = MonitorConfig(max_retries=DEFAULT_MAX_RETRIES)
         monitor = JobMonitor(config)
@@ -69,7 +69,7 @@ class TestJobMonitor:
 
     def test_report_error(self):
         from dlazy.constants import DEFAULT_MAX_RETRIES
-        from dlazy.monitor import JobMonitor, MonitorConfig, TaskError
+        from dlazy.core.workflow_state import JobMonitor, MonitorConfig, TaskError
 
         config = MonitorConfig(max_retries=DEFAULT_MAX_RETRIES)
         monitor = JobMonitor(config)
@@ -87,7 +87,7 @@ class TestJobMonitor:
 
     def test_should_retry(self):
         from dlazy.constants import DEFAULT_MAX_RETRIES
-        from dlazy.monitor import JobMonitor, MonitorConfig
+        from dlazy.core.workflow_state import JobMonitor, MonitorConfig
 
         config = MonitorConfig(max_retries=DEFAULT_MAX_RETRIES)
         monitor = JobMonitor(config)
@@ -98,7 +98,7 @@ class TestJobMonitor:
 
     def test_should_abort_submit_failed(self):
         from dlazy.constants import DEFAULT_MAX_RETRIES
-        from dlazy.monitor import JobMonitor, MonitorConfig, TaskError
+        from dlazy.core.workflow_state import JobMonitor, MonitorConfig, TaskError
 
         config = MonitorConfig(max_retries=DEFAULT_MAX_RETRIES)
         monitor = JobMonitor(config)
@@ -115,7 +115,7 @@ class TestJobMonitor:
 
     def test_should_abort_node_error_exceeded(self):
         from dlazy.constants import DEFAULT_MAX_RETRIES
-        from dlazy.monitor import JobMonitor, MonitorConfig, TaskError
+        from dlazy.core.workflow_state import JobMonitor, MonitorConfig, TaskError
 
         config = MonitorConfig(max_retries=DEFAULT_MAX_RETRIES)
         monitor = JobMonitor(config)
@@ -133,7 +133,7 @@ class TestJobMonitor:
 
     def test_should_not_abort_calc_error(self):
         from dlazy.constants import DEFAULT_MAX_RETRIES
-        from dlazy.monitor import JobMonitor, MonitorConfig, TaskError
+        from dlazy.core.workflow_state import JobMonitor, MonitorConfig, TaskError
 
         config = MonitorConfig(max_retries=DEFAULT_MAX_RETRIES)
         monitor = JobMonitor(config)
@@ -151,7 +151,7 @@ class TestJobMonitor:
 
     def test_trigger_abort(self):
         from dlazy.constants import DEFAULT_MAX_RETRIES
-        from dlazy.monitor import JobMonitor, MonitorConfig
+        from dlazy.core.workflow_state import JobMonitor, MonitorConfig
 
         config = MonitorConfig(max_retries=DEFAULT_MAX_RETRIES)
         monitor = JobMonitor(config)
@@ -164,7 +164,7 @@ class TestJobMonitor:
 
     def test_save_and_restore_state(self):
         from dlazy.constants import DEFAULT_MAX_RETRIES
-        from dlazy.monitor import JobMonitor, MonitorConfig
+        from dlazy.core.workflow_state import JobMonitor, MonitorConfig
 
         config = MonitorConfig(max_retries=DEFAULT_MAX_RETRIES)
         monitor = JobMonitor(config)

@@ -3,8 +3,9 @@
 import json
 import tempfile
 from pathlib import Path
-from dlazy.error_handler import ErrorContext, record_error
-from dlazy.record_utils import ErrorTask, _read_jsonl
+from dlazy.core.workflow_state import ErrorContext, record_error
+from dlazy.core import ErrorTask
+from dlazy.core.tasks import _read_jsonl
 from dlazy.path_resolver import BatchPathResolver
 
 
