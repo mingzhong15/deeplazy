@@ -133,6 +133,38 @@ See `examples/demo-workflow/global_config.yaml` for an example configuration fil
 
 ## Changelog
 
+### v2.13.0 (2026-03-13)
+
+**New Feature: Task Relay System**
+
+Failed tasks are automatically forwarded to the next batch for retry. Tasks are marked as permanent failure only when the relay exceeds total batches.
+
+**How it works:**
+```
+Initial: 704 tasks, batch_size=100 → total_batches=8
+
+batch.000: 100 tasks → 20 failed → relay to batch.001
+batch.001: 100+20 tasks → 15 failed → relay to batch.002
+...
+batch.007: 100+5 tasks → 8 failed → next_batch=8 >= total=8
+                                    ↓
+                            permanent failure
+```
+
+**Changes:**
+- `_collect_failed_tasks()` now uses relay-based failure detection
+- Tasks marked as permanent failure when `next_batch_index >= total_batches`
+- Removed dependency on `MAX_RETRY_COUNT` for batch relay
+
+**Usage:**
+```bash
+# Run batch workflow with automatic task relay
+dlazy batch --config global_config.yaml
+
+# Failed tasks automatically forward to next batch
+# Only marked as permanent when relay exceeds total batches
+```
+
 ### v2.12.1 (2026-03-13)
 
 **Bug Fixes:**

@@ -203,14 +203,22 @@ class BatchScheduler(WorkflowBase):
         """Count tasks in current batch."""
         return count_tasks(resolver.get_olp_tasks_file())
 
-    def _collect_failed_tasks(self, resolver: BatchPathResolver) -> List[OlpTask]:
+    def _collect_failed_tasks(
+        self,
+        resolver: BatchPathResolver,
+        next_batch_index: Optional[int] = None,
+        total_batches: Optional[int] = None,
+    ) -> List[OlpTask]:
         """
         Collect failed tasks from all stages.
 
-        Filters out tasks that exceeded max retry count.
+        Uses relay-based failure detection: tasks are marked as permanent failure
+        when the next batch index exceeds total_batches.
 
         Args:
             resolver: Current batch path resolver
+            next_batch_index: Next batch index for relay check
+            total_batches: Total number of batches
 
         Returns:
             List of failed tasks that can be retried
@@ -231,17 +239,22 @@ class BatchScheduler(WorkflowBase):
         valid_tasks = []
         permanent_errors = []
 
+        # Relay判断：如果下一个 batch 超过总数，判定为永久失败
+        relay_exceeded = False
+        if next_batch_index is not None and total_batches is not None:
+            relay_exceeded = next_batch_index >= total_batches
+
         for path in failed_paths:
-            retry_count = get_task_retry_count(self.ctx.workflow_root, path)
-            if retry_count >= MAX_RETRY_COUNT:
+            if relay_exceeded:
+                # 接力超过总数，标记为永久失败
                 permanent_errors.append(
                     ErrorTask(
                         path=path,
-                        stage="exceeded",
-                        error=f"Max retry count ({MAX_RETRY_COUNT}) exceeded",
+                        stage="relay_exceeded",
+                        error=f"Relay exceeded total batches ({total_batches})",
                         batch_id=str(resolver.batch_index),
                         task_id="",
-                        retry_count=retry_count,
+                        retry_count=0,
                     )
                 )
             else:
@@ -253,13 +266,13 @@ class BatchScheduler(WorkflowBase):
             for task in permanent_errors:
                 append_error_task(perm_file, task)
             self.logger.warning(
-                "%d tasks exceeded max retries, saved to %s",
+                "%d tasks marked as permanent failure (relay exceeded), saved to %s",
                 len(permanent_errors),
                 perm_file,
             )
 
         self.logger.info(
-            "Collected %d failed tasks (%d permanent failures)",
+            "Collected %d failed tasks (%d permanent failures due to relay limit)",
             len(valid_tasks),
             len(permanent_errors),
         )
@@ -551,7 +564,13 @@ class BatchScheduler(WorkflowBase):
                             self._get_abort_reason() or "Max retries exceeded"
                         )
 
-                failed_tasks = self._collect_failed_tasks(resolver)
+                total_batches = self.state.get("total_batches", 0)
+                next_batch_index = batch_index + 1
+                failed_tasks = self._collect_failed_tasks(
+                    resolver,
+                    next_batch_index=next_batch_index,
+                    total_batches=total_batches,
+                )
                 if failed_tasks:
                     next_resolver = resolver.get_next_batch_resolver()
                     self._forward_failed_tasks(failed_tasks, next_resolver)
