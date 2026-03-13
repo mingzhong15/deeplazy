@@ -38,7 +38,7 @@ def validate_path(
 
         if not path_obj.is_absolute():
             if base_dir is None:
-                raise SecurityError(f"相对路径需要指定 base_dir: {path}")
+                base_dir = Path.cwd()
             path_obj = (base_dir / path_obj).resolve()
         else:
             path_obj = path_obj.resolve()
