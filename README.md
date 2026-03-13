@@ -133,6 +133,42 @@ See `examples/demo-workflow/global_config.yaml` for an example configuration fil
 
 ## Changelog
 
+### v2.14.0 (2026-03-13)
+
+**Critical Fix: Output-Based Failure Detection**
+
+Failed tasks are now detected by comparing input tasks with actual outputs at each stage, instead of relying on error_tasks.jsonl which may not exist for silent failures.
+
+**How it works:**
+```
+For each batch:
+  1. Read all input paths from olp_tasks.jsonl
+  2. Check OLP outputs: output_olp/task.*/overlaps.h5
+  3. Check Infer outputs: geth_path/hamiltonians.h5 (from calc_tasks.jsonl)
+  4. Check Calc outputs: output_calc/task.*/geth/hamiltonians.h5
+  5. Failed = Input - Calc success
+  6. Determine failure stage for each failed task
+  7. Write to error_tasks.jsonl for record
+  8. Relay to next batch if not exceeded
+```
+
+**Stage Detection:**
+- Tasks missing overlaps.h5 → OLP failure
+- Tasks with overlaps.h5 but missing infer output → Infer failure  
+- Tasks with infer output but missing calc output → Calc failure
+
+**Statistics Output:**
+```
+Stage statistics: OLP=120/120, Infer=100/120, Calc=100/100
+Wrote 20 error tasks to error_tasks.jsonl
+Collected 20 failed tasks (0 permanent failures)
+```
+
+**Changes:**
+- `_collect_failed_tasks()` now uses output-based detection
+- Automatic error_tasks.jsonl generation for all failures
+- Detailed stage-by-stage failure analysis
+
 ### v2.13.0 (2026-03-13)
 
 **New Feature: Task Relay System**

@@ -206,14 +206,14 @@ class BatchScheduler(WorkflowBase):
     def _collect_failed_tasks(
         self,
         resolver: BatchPathResolver,
-        next_batch_index: Optional[int] = None,
-        total_batches: Optional[int] = None,
+        next_batch_index: int = None,
+        total_batches: int = None,
     ) -> List[OlpTask]:
         """
-        Collect failed tasks from all stages.
+        Collect failed tasks based on output file detection.
 
-        Uses relay-based failure detection: tasks are marked as permanent failure
-        when the next batch index exceeds total_batches.
+        Detects failure by comparing input tasks with actual outputs at each stage.
+        Writes error_tasks.jsonl for record keeping.
 
         Args:
             resolver: Current batch path resolver
@@ -223,34 +223,107 @@ class BatchScheduler(WorkflowBase):
         Returns:
             List of failed tasks that can be retried
         """
-        failed_paths = set()
+        from .constants import (
+            OVERLAP_FILENAME,
+            HAMILTONIAN_FILENAME,
+            SLURM_SUBDIR_TEMPLATE,
+            OUTPUT_SUBDIR_TEMPLATE,
+            TASK_DIR_PREFIX,
+            ERROR_TASKS_FILE,
+        )
 
-        for stage in BATCH_STAGES:
-            error_file = getattr(resolver, f"get_{stage}_error_file")()
-            if error_file.exists():
-                for d in _read_jsonl(error_file):
-                    path = d.get("path", "")
-                    if path:
-                        failed_paths.add(path)
+        # 1. 获取所有输入任务路径
+        all_paths = {}  # path -> index mapping
+        olp_tasks_file = resolver.get_olp_tasks_file()
+        for i, task in enumerate(_read_jsonl(olp_tasks_file)):
+            all_paths[task["path"]] = i
 
-        if not failed_paths:
+        if not all_paths:
             return []
 
-        valid_tasks = []
-        permanent_errors = []
+        # 2. 检查 OLP 阶段成功情况
+        olp_success_paths = set()
+        olp_output_dir = resolver.get_olp_output_dir()
+        if olp_output_dir.exists():
+            for path, idx in all_paths.items():
+                overlap_file = (
+                    olp_output_dir / f"{TASK_DIR_PREFIX}.{idx:06d}" / OVERLAP_FILENAME
+                )
+                if overlap_file.exists():
+                    olp_success_paths.add(path)
 
-        # Relay判断：如果下一个 batch 超过总数，判定为永久失败
+        # 3. 检查 Infer 阶段成功情况（从 calc_tasks.jsonl 获取路径）
+        infer_success_paths = set()
+        calc_tasks_file = resolver.get_calc_tasks_file()
+        if calc_tasks_file.exists():
+            for task in _read_jsonl(calc_tasks_file):
+                path = task.get("path", "")
+                geth_path = Path(task.get("geth_path", ""))
+                if path and geth_path.exists():
+                    ham_file = geth_path / HAMILTONIAN_FILENAME
+                    if ham_file.exists():
+                        infer_success_paths.add(path)
+
+        # 4. 检查 Calc 阶段成功情况
+        calc_success_paths = set()
+        calc_output_dir = resolver.get_calc_output_dir()
+        if calc_output_dir.exists():
+            # 需要建立 calc_tasks index 到 path 的映射
+            if calc_tasks_file.exists():
+                for i, task in enumerate(_read_jsonl(calc_tasks_file)):
+                    path = task.get("path", "")
+                    ham_file = (
+                        calc_output_dir
+                        / f"{TASK_DIR_PREFIX}.{i:06d}"
+                        / "geth"
+                        / HAMILTONIAN_FILENAME
+                    )
+                    if ham_file.exists():
+                        calc_success_paths.add(path)
+
+        # 5. 统计各阶段失败
+        olp_failed = all_paths.keys() - olp_success_paths
+        infer_failed = olp_success_paths - infer_success_paths
+        calc_failed = infer_success_paths - calc_success_paths
+
+        self.logger.info(
+            "Stage statistics: OLP=%d/%d, Infer=%d/%d, Calc=%d/%d",
+            len(olp_success_paths),
+            len(all_paths),
+            len(infer_success_paths),
+            len(olp_success_paths) if olp_success_paths else len(all_paths),
+            len(calc_success_paths),
+            len(infer_success_paths) if infer_success_paths else 0,
+        )
+
+        # 6. 收集所有失败路径及其阶段
+        failed_with_stage = []
+        for path in olp_failed:
+            failed_with_stage.append((path, "olp"))
+        for path in infer_failed:
+            failed_with_stage.append((path, "infer"))
+        for path in calc_failed:
+            failed_with_stage.append((path, "calc"))
+
+        if not failed_with_stage:
+            return []
+
+        # 7. 接力判断：如果下一个 batch 超过总数，判定为永久失败
         relay_exceeded = False
         if next_batch_index is not None and total_batches is not None:
             relay_exceeded = next_batch_index >= total_batches
 
-        for path in failed_paths:
+        # 8. 分类处理
+        valid_tasks = []
+        permanent_errors = []
+        error_tasks = []
+
+        for path, stage in failed_with_stage:
             if relay_exceeded:
-                # 接力超过总数，标记为永久失败
                 permanent_errors.append(
                     ErrorTask(
                         path=path,
-                        stage="relay_exceeded",
+                        stage=stage,
                         error=f"Relay exceeded total batches ({total_batches})",
                         batch_id=str(resolver.batch_index),
                         task_id="",
@@ -260,6 +333,31 @@ class BatchScheduler(WorkflowBase):
             else:
                 valid_tasks.append(OlpTask(path=path))
 
+            # 记录所有失败到 error_tasks.jsonl
+            error_tasks.append(
+                ErrorTask(
+                    path=path,
+                    stage=stage,
+                    error="Missing output file",
+                    batch_id=str(resolver.batch_index),
+                    task_id="",
+                    retry_count=0,
+                )
+            )
+
+        # 9. 写入 error_tasks.jsonl
+        if error_tasks:
+            error_file = resolver.get_olp_error_file()  # 使用 OLP 阶段的 error 文件
+            error_file.parent.mkdir(parents=True, exist_ok=True)
+            for task in error_tasks:
+                append_error_task(error_file, task)
+            self.logger.info(
+                "Wrote %d error tasks to %s",
+                len(error_tasks),
+                error_file,
+            )
+
+        # 10. 写入永久失败记录
         if permanent_errors:
             perm_file = resolver.get_permanent_error_file()
             perm_file.parent.mkdir(parents=True, exist_ok=True)
