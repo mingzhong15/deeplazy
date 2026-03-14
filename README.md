@@ -305,6 +305,27 @@ See `examples/demo-workflow/global_config.yaml` for an example configuration fil
 
 ## Changelog
 
+### v2.14.2 (2026-03-14)
+
+**Critical Bug Fixes:**
+- Fixed `source_batch` and `retry_count` not propagated during stage transitions (OLP→Infer, Infer→Calc)
+- Fixed Calc stage exception being swallowed instead of re-raised
+- Fixed all errors written to OLP error file regardless of actual stage
+
+**Data Flow Improvements:**
+- Added `scf_path` field to CalcTask for full traceability
+- Added parameter validation at CLI layer (start/end, group)
+- Added Context validation via `__post_init__` (num_cores, parallel, model_dir existence)
+
+**State Management Fixes:**
+- Added FileLock protection for state file reads/writes
+- Fixed non-atomic JSONL overwrite operations
+- Fixed monitor state save using atomic_write_json
+
+**Error Handling:**
+- Unified error record format (message + error fields for backward compatibility)
+- Improved error file routing by stage
+
 ### v2.12.0 (2026-03-14)
 
 **Feature: Task Tracking & Statistics Improvement**

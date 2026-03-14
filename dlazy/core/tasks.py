@@ -67,6 +67,7 @@ class CalcTask:
 
     path: str
     geth_path: str
+    scf_path: str = ""
     source_batch: int = -1
     retry_count: int = 0
 
@@ -74,6 +75,7 @@ class CalcTask:
         return {
             "path": self.path,
             "geth_path": self.geth_path,
+            "scf_path": self.scf_path,
             "source_batch": self.source_batch,
             "retry_count": self.retry_count,
         }
@@ -83,6 +85,7 @@ class CalcTask:
         return cls(
             path=d["path"],
             geth_path=d["geth_path"],
+            scf_path=d.get("scf_path", ""),
             source_batch=d.get("source_batch", -1),
             retry_count=d.get("retry_count", 0),
         )
@@ -102,14 +105,24 @@ def _read_jsonl(filepath: Path) -> Iterator[dict]:
 def _write_jsonl(filepath: Path, records: List[dict], append: bool = False) -> None:
     """Write records to JSON Lines file."""
     from dlazy.utils.concurrency import atomic_append_jsonl
+    import os
 
     if append:
         atomic_append_jsonl(filepath, records)
     else:
         filepath.parent.mkdir(parents=True, exist_ok=True)
-        with open(filepath, "w", encoding="utf-8") as f:
-            for record in records:
-                f.write(json.dumps(record, ensure_ascii=False) + "\n")
+        tmp_path = filepath.with_suffix(filepath.suffix + ".tmp")
+        try:
+            with open(tmp_path, "w", encoding="utf-8") as f:
+                for record in records:
+                    f.write(json.dumps(record, ensure_ascii=False) + "\n")
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(str(tmp_path), str(filepath))
+        except Exception:
+            if tmp_path.exists():
+                tmp_path.unlink()
+            raise
 
 
 def read_tasks(filepath: Path, task_cls: Type[T]) -> List[T]:

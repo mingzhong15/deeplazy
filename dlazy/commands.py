@@ -299,6 +299,8 @@ class OLPCommandExecutor:
             return InferTask(
                 path=task.path,
                 scf_path=str(task_dir),
+                source_batch=task.source_batch,
+                retry_count=task.retry_count,
             )
 
         except Exception as e:
@@ -846,6 +848,9 @@ class InferCommandExecutor:
                     CalcTask(
                         path=infer_task.path,
                         geth_path=str(geth_task_dir),
+                        scf_path=infer_task.scf_path,
+                        source_batch=infer_task.source_batch,
+                        retry_count=infer_task.retry_count,
                     )
                 )
 
@@ -1103,4 +1108,4 @@ class CalcCommandExecutor:
                     resolver=resolver,
                 )
             )
-            return ("failed", label)
+            raise

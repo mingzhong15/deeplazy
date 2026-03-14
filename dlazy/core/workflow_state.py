@@ -53,7 +53,8 @@ class ErrorRecord:
             "path": self.path,
             "stage": self.stage,
             "failure_type": self.failure_type.value,
-            "message": self.message or self.error,
+            "message": self.message,
+            "error": self.error,
             "batch_id": self.batch_id,
             "task_id": self.task_id,
             "retry_count": self.retry_count,
@@ -63,15 +64,30 @@ class ErrorRecord:
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "ErrorRecord":
+        message = data.get("message", "")
+        error = data.get("error", "")
+        if not message and error:
+            message = error
+        failure_type_str = data.get("failure_type")
+        failure_type = (
+            FailureType(failure_type_str)
+            if failure_type_str
+            else FailureType.CALC_ERROR
+        )
+        timestamp_str = data.get("timestamp")
+        timestamp = (
+            datetime.fromisoformat(timestamp_str) if timestamp_str else datetime.now()
+        )
         return cls(
             path=data["path"],
             stage=data["stage"],
-            failure_type=FailureType(data["failure_type"]),
-            message=data["message"],
+            failure_type=failure_type,
+            message=message,
+            error=error,
             batch_id=data["batch_id"],
             task_id=data["task_id"],
             retry_count=data.get("retry_count", 0),
-            timestamp=datetime.fromisoformat(data["timestamp"]),
+            timestamp=timestamp,
         )
 
 

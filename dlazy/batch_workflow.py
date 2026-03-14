@@ -79,8 +79,9 @@ class BatchScheduler(WorkflowBase):
 
         # 自动加载已有状态
         if self.ctx.state_file.exists():
-            with open(self.ctx.state_file, "r", encoding="utf-8") as f:
-                state = json.load(f)
+            with FileLock(self.ctx.state_file, timeout=30.0):
+                with open(self.ctx.state_file, "r", encoding="utf-8") as f:
+                    state = json.load(f)
                 self.logger.info("Resumed from state: %s", self.ctx.state_file)
                 return state
 
@@ -132,8 +133,9 @@ class BatchScheduler(WorkflowBase):
         if batch_key not in state["batch_times"]:
             state["batch_times"][batch_key] = {"start": datetime.now().isoformat()}
 
-        # 使用原子写入
-        atomic_write_json(self.ctx.state_file, state)
+        # 使用原子写入，加锁保护
+        with FileLock(self.ctx.state_file, timeout=30.0):
+            atomic_write_json(self.ctx.state_file, state)
 
     def _get_path_resolver(self, batch_index: int) -> BatchPathResolver:
         """Get PathResolver for a specific batch."""
@@ -347,16 +349,22 @@ class BatchScheduler(WorkflowBase):
                 )
             )
 
-        # 8. 写入 error_tasks.jsonl
+        # 8. 写入 error_tasks.jsonl（按阶段选择错误文件）
         if error_tasks:
-            error_file = resolver.get_olp_error_file()  # 使用 OLP 阶段的 error 文件
-            error_file.parent.mkdir(parents=True, exist_ok=True)
             for task in error_tasks:
+                if task.stage == "olp":
+                    error_file = resolver.get_olp_error_file()
+                elif task.stage == "infer":
+                    error_file = resolver.get_infer_error_file()
+                elif task.stage == "calc":
+                    error_file = resolver.get_calc_error_file()
+                else:
+                    error_file = resolver.get_olp_error_file()
+                error_file.parent.mkdir(parents=True, exist_ok=True)
                 append_error_task(error_file, task)
             self.logger.info(
-                "Wrote %d error tasks to %s",
+                "Wrote %d error tasks",
                 len(error_tasks),
-                error_file,
             )
 
         # 9. 写入永久失败记录

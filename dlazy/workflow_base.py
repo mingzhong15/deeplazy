@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any, Dict, Optional
 from .constants import DEFAULT_MAX_RETRIES, MONITOR_STATE_FILE
 from .core.exceptions import FailureType
 from .core.workflow_state import JobMonitor, MonitorConfig, TaskError
+from .utils.concurrency import atomic_write_json
 
 if TYPE_CHECKING:
     pass
@@ -50,11 +51,9 @@ class WorkflowBase:
         """Save monitor state to file."""
         if self.monitor is None:
             return
-
         try:
             monitor_state = self.monitor.save_state()
-            with open(monitor_state_file, "w", encoding="utf-8") as f:
-                json.dump(monitor_state, f, indent=2, ensure_ascii=False)
+            atomic_write_json(monitor_state_file, monitor_state)
         except Exception as e:
             self.logger.error("Failed to save monitor state: %s", e)
 

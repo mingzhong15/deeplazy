@@ -34,6 +34,10 @@ class BatchContext:
     error_tasks_file: Optional[Path] = None
     monitor: Optional[JobMonitor] = None
 
+    def __post_init__(self):
+        if self.batch_size <= 0:
+            raise ValueError(f"batch_size must be positive, got {self.batch_size}")
+
 
 @dataclass
 class OLPContext(BaseContext):
@@ -48,6 +52,14 @@ class OLPContext(BaseContext):
     node_error_flag: Optional[Path] = None
     stru_log: Optional[Path] = None
     monitor: Optional[JobMonitor] = None
+
+    def __post_init__(self):
+        if self.num_cores <= 0:
+            raise ValueError(f"num_cores must be positive, got {self.num_cores}")
+        if self.max_processes <= 0:
+            raise ValueError(
+                f"max_processes must be positive, got {self.max_processes}"
+            )
 
 
 @dataclass
@@ -64,6 +76,14 @@ class InferContext(BaseContext):
     model_dir: Path
     dataset_prefix: str
     monitor: Optional[JobMonitor] = None
+
+    def __post_init__(self):
+        if self.num_groups <= 0:
+            raise ValueError(f"num_groups must be positive, got {self.num_groups}")
+        if self.parallel <= 0:
+            raise ValueError(f"parallel must be positive, got {self.parallel}")
+        if not self.model_dir.exists():
+            raise ValueError(f"model_dir does not exist: {self.model_dir}")
 
 
 @dataclass

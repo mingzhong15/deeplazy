@@ -188,6 +188,10 @@ class WorkflowExecutor:
         workflow_root = path_resolver.get_workdir()
         result_dir = path_resolver.get_infer_output_dir()
 
+        model_dir = Path(config.get("model_dir", ""))
+        if not model_dir or not model_dir.exists():
+            raise ValueError(f"model_dir does not exist or not configured: {model_dir}")
+
         ctx = InferContext(
             config=config,
             workflow_root=workflow_root,

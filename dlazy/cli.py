@@ -83,6 +83,13 @@ def cmd_olp(args):
         else config_path.parent
     )
 
+    if args.start < 0:
+        print("错误: --start 不能为负数", file=sys.stderr)
+        sys.exit(1)
+    if args.end <= args.start:
+        print("错误: --end 必须大于 --start", file=sys.stderr)
+        sys.exit(1)
+
     result = WorkflowExecutor.run_olp_stage(
         global_config=str(config_path),
         start=args.start,
@@ -103,6 +110,10 @@ def cmd_infer(args):
         else config_path.parent
     )
 
+    if args.group < 1:
+        print("错误: --group 必须为正整数", file=sys.stderr)
+        sys.exit(1)
+
     result = WorkflowExecutor.run_infer_stage(
         global_config=str(config_path),
         group_index=args.group,
@@ -121,6 +132,13 @@ def cmd_calc(args):
         if args.workdir
         else config_path.parent
     )
+
+    if args.start < 0:
+        print("错误: --start 不能为负数", file=sys.stderr)
+        sys.exit(1)
+    if args.end <= args.start:
+        print("错误: --end 必须大于 --start", file=sys.stderr)
+        sys.exit(1)
 
     result = WorkflowExecutor.run_calc_stage(
         global_config=str(config_path),
