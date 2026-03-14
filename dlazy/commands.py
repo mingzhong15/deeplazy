@@ -618,6 +618,58 @@ class InferCommandExecutor:
         logger.info("已写入 hamlog %d 条记录 -> %s", len(records), hamlog_file)
 
     @staticmethod
+    def _run_command_with_node_monitor(
+        command: str, cwd: Path, logger
+    ) -> Tuple[bool, Optional[str]]:
+        """
+        运行命令并监控节点错误
+
+        Args:
+            command: 要执行的命令
+            cwd: 工作目录
+            logger: 日志器
+
+        Returns:
+            (node_error_detected, node_name): 是否检测到节点错误及节点名
+        """
+        import socket
+
+        node_name = socket.gethostname()
+        node_error_detected = False
+        output_file = cwd / "infer.std"
+
+        proc = subprocess.Popen(
+            command,
+            shell=True,
+            stdout=open(output_file, "w", encoding="utf-8"),
+            stderr=subprocess.STDOUT,
+            text=True,
+            cwd=str(cwd),
+        )
+
+        def monitor_output():
+            nonlocal node_error_detected
+            with open(output_file, "r", encoding="utf-8") as f:
+                while proc.poll() is None:
+                    line = f.readline()
+                    if not line:
+                        continue
+                    if "Requested nodes are busy" in line or "Socket timed out" in line:
+                        node_error_detected = True
+                        logger.warning(
+                            "Node error detected on %s: %s", node_name, line.strip()
+                        )
+                        proc.terminate()
+                        return
+
+        monitor_thread = Thread(target=monitor_output, daemon=True)
+        monitor_thread.start()
+        proc.wait()
+        monitor_thread.join()
+
+        return node_error_detected, node_name if node_error_detected else None
+
+    @staticmethod
     def execute_batch(
         group_index: int,
         infer_tasks: List[InferTask],
@@ -722,7 +774,11 @@ class InferCommandExecutor:
             infer_cmd = config["commands"]["infer"]
             command = infer_cmd.format(config_path=infer_config_path)
             logger.info("Running infer: %s", command)
-            run_subprocess(command, shell=True)
+            node_error, node_name = InferCommandExecutor._run_command_with_node_monitor(
+                command, group_dir, logger
+            )
+            if node_error:
+                raise InferError(f"Node error detected on {node_name}")
 
             subdirs = [item for item in outputs_dir.iterdir() if item.is_dir()]
             if not subdirs:
@@ -754,6 +810,8 @@ class InferCommandExecutor:
                     if target_info.exists() or target_info.is_symlink():
                         target_info.unlink()
                     os.symlink(source_info, target_info)
+                else:
+                    logger.warning("info.json not found: %s", source_info)
 
                 source_poscar = input_dft_dir / task_dirname / "POSCAR"
                 if source_poscar.exists():
@@ -761,6 +819,8 @@ class InferCommandExecutor:
                     if target_poscar.exists() or target_poscar.is_symlink():
                         target_poscar.unlink()
                     os.symlink(source_poscar, target_poscar)
+                else:
+                    logger.warning("POSCAR not found: %s", source_poscar)
 
             transform_reverse_cmd = config["commands"]["transform_reverse"]
             command = transform_reverse_cmd.format(

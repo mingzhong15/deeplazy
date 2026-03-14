@@ -207,8 +207,6 @@ class BatchScheduler(WorkflowBase):
     def _collect_failed_tasks(
         self,
         resolver: BatchPathResolver,
-        next_batch_index: int = None,
-        total_batches: int = None,
     ) -> List[OlpTask]:
         """
         Collect failed tasks based on output file detection.
@@ -218,8 +216,6 @@ class BatchScheduler(WorkflowBase):
 
         Args:
             resolver: Current batch path resolver
-            next_batch_index: Next batch index for relay check
-            total_batches: Total number of batches
 
         Returns:
             List of failed tasks that can be retried
@@ -234,10 +230,10 @@ class BatchScheduler(WorkflowBase):
         )
 
         # 1. 获取所有输入任务路径
-        all_paths = {}  # path -> index mapping
+        all_paths = {}  # path -> (index, task_dict) mapping
         olp_tasks_file = resolver.get_olp_tasks_file()
         for i, task in enumerate(_read_jsonl(olp_tasks_file)):
-            all_paths[task["path"]] = i
+            all_paths[task["path"]] = (i, task)
 
         if not all_paths:
             return []
@@ -246,7 +242,7 @@ class BatchScheduler(WorkflowBase):
         olp_success_paths = set()
         olp_output_dir = resolver.get_olp_output_dir()
         if olp_output_dir.exists():
-            for path, idx in all_paths.items():
+            for path, (idx, task) in all_paths.items():
                 overlap_file = (
                     olp_output_dir / f"{TASK_DIR_PREFIX}.{idx:06d}" / OVERLAP_FILENAME
                 )
@@ -309,30 +305,35 @@ class BatchScheduler(WorkflowBase):
         if not failed_with_stage:
             return []
 
-        # 7. 接力判断：如果下一个 batch 超过总数，判定为永久失败
-        relay_exceeded = False
-        if next_batch_index is not None and total_batches is not None:
-            relay_exceeded = next_batch_index >= total_batches
-
-        # 8. 分类处理
+        # 7. 分类处理：基于 retry_count 判断永久失败
         valid_tasks = []
         permanent_errors = []
         error_tasks = []
 
         for path, stage in failed_with_stage:
-            if relay_exceeded:
+            retry_count = get_task_retry_count(self.ctx.workflow_root, path)
+            task_dict = all_paths.get(path, (0, {}))[1]
+            current_retry = task_dict.get("retry_count", retry_count)
+
+            if current_retry >= MAX_RETRY_COUNT:
                 permanent_errors.append(
                     ErrorTask(
                         path=path,
                         stage=stage,
-                        error=f"Relay exceeded total batches ({total_batches})",
+                        error=f"Exceeded max retry count ({MAX_RETRY_COUNT})",
                         batch_id=str(resolver.batch_index),
                         task_id="",
-                        retry_count=0,
+                        retry_count=current_retry,
                     )
                 )
             else:
-                valid_tasks.append(OlpTask(path=path))
+                valid_tasks.append(
+                    OlpTask(
+                        path=path,
+                        source_batch=task_dict.get("source_batch", -1),
+                        retry_count=current_retry,
+                    )
+                )
 
             # 记录所有失败到 error_tasks.jsonl
             error_tasks.append(
@@ -342,11 +343,11 @@ class BatchScheduler(WorkflowBase):
                     error="Missing output file",
                     batch_id=str(resolver.batch_index),
                     task_id="",
-                    retry_count=0,
+                    retry_count=current_retry,
                 )
             )
 
-        # 9. 写入 error_tasks.jsonl
+        # 8. 写入 error_tasks.jsonl
         if error_tasks:
             error_file = resolver.get_olp_error_file()  # 使用 OLP 阶段的 error 文件
             error_file.parent.mkdir(parents=True, exist_ok=True)
@@ -358,20 +359,20 @@ class BatchScheduler(WorkflowBase):
                 error_file,
             )
 
-        # 10. 写入永久失败记录
+        # 9. 写入永久失败记录
         if permanent_errors:
             perm_file = resolver.get_permanent_error_file()
             perm_file.parent.mkdir(parents=True, exist_ok=True)
             for task in permanent_errors:
                 append_error_task(perm_file, task)
             self.logger.warning(
-                "%d tasks marked as permanent failure (relay exceeded), saved to %s",
+                "%d tasks marked as permanent failure (retry count exceeded), saved to %s",
                 len(permanent_errors),
                 perm_file,
             )
 
         self.logger.info(
-            "Collected %d failed tasks (%d permanent failures due to relay limit)",
+            "Collected %d failed tasks (%d permanent failures due to retry limit)",
             len(valid_tasks),
             len(permanent_errors),
         )
@@ -379,7 +380,10 @@ class BatchScheduler(WorkflowBase):
         return valid_tasks
 
     def _forward_failed_tasks(
-        self, failed_tasks: List[OlpTask], next_resolver: BatchPathResolver
+        self,
+        failed_tasks: List[OlpTask],
+        next_resolver: BatchPathResolver,
+        current_batch_index: int,
     ) -> None:
         """
         Forward failed tasks to next batch.
@@ -387,6 +391,7 @@ class BatchScheduler(WorkflowBase):
         Args:
             failed_tasks: List of failed tasks to retry
             next_resolver: Path resolver for next batch
+            current_batch_index: Current batch index (for source_batch tracking)
         """
         if not failed_tasks:
             return
@@ -395,7 +400,12 @@ class BatchScheduler(WorkflowBase):
         tasks_file.parent.mkdir(parents=True, exist_ok=True)
 
         for task in failed_tasks:
-            append_olp_task(tasks_file, task)
+            relay_task = OlpTask(
+                path=task.path,
+                source_batch=current_batch_index,
+                retry_count=task.retry_count + 1,
+            )
+            append_olp_task(tasks_file, relay_task)
 
         self.logger.info(
             "Forwarded %d failed tasks to batch %d",
@@ -690,16 +700,10 @@ class BatchScheduler(WorkflowBase):
                             self._get_abort_reason() or "Max retries exceeded"
                         )
 
-                total_batches = self.state.get("total_batches", 0)
-                next_batch_index = batch_index + 1
-                failed_tasks = self._collect_failed_tasks(
-                    resolver,
-                    next_batch_index=next_batch_index,
-                    total_batches=total_batches,
-                )
+                failed_tasks = self._collect_failed_tasks(resolver)
                 if failed_tasks:
                     next_resolver = resolver.get_next_batch_resolver()
-                    self._forward_failed_tasks(failed_tasks, next_resolver)
+                    self._forward_failed_tasks(failed_tasks, next_resolver, batch_index)
 
                 batch_key = str(batch_index)
                 if "batch_times" not in self.state:

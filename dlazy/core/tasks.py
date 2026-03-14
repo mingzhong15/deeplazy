@@ -15,13 +15,23 @@ class OlpTask:
     """OLP stage input task."""
 
     path: str
+    source_batch: int = -1
+    retry_count: int = 0
 
     def to_dict(self) -> dict:
-        return {"path": self.path}
+        return {
+            "path": self.path,
+            "source_batch": self.source_batch,
+            "retry_count": self.retry_count,
+        }
 
     @classmethod
     def from_dict(cls, d: dict) -> "OlpTask":
-        return cls(path=d["path"])
+        return cls(
+            path=d["path"],
+            source_batch=d.get("source_batch", -1),
+            retry_count=d.get("retry_count", 0),
+        )
 
 
 @dataclass
@@ -30,13 +40,25 @@ class InferTask:
 
     path: str
     scf_path: str
+    source_batch: int = -1
+    retry_count: int = 0
 
     def to_dict(self) -> dict:
-        return {"path": self.path, "scf_path": self.scf_path}
+        return {
+            "path": self.path,
+            "scf_path": self.scf_path,
+            "source_batch": self.source_batch,
+            "retry_count": self.retry_count,
+        }
 
     @classmethod
     def from_dict(cls, d: dict) -> "InferTask":
-        return cls(path=d["path"], scf_path=d["scf_path"])
+        return cls(
+            path=d["path"],
+            scf_path=d["scf_path"],
+            source_batch=d.get("source_batch", -1),
+            retry_count=d.get("retry_count", 0),
+        )
 
 
 @dataclass
@@ -45,13 +67,25 @@ class CalcTask:
 
     path: str
     geth_path: str
+    source_batch: int = -1
+    retry_count: int = 0
 
     def to_dict(self) -> dict:
-        return {"path": self.path, "geth_path": self.geth_path}
+        return {
+            "path": self.path,
+            "geth_path": self.geth_path,
+            "source_batch": self.source_batch,
+            "retry_count": self.retry_count,
+        }
 
     @classmethod
     def from_dict(cls, d: dict) -> "CalcTask":
-        return cls(path=d["path"], geth_path=d["geth_path"])
+        return cls(
+            path=d["path"],
+            geth_path=d["geth_path"],
+            source_batch=d.get("source_batch", -1),
+            retry_count=d.get("retry_count", 0),
+        )
 
 
 def _read_jsonl(filepath: Path) -> Iterator[dict]:

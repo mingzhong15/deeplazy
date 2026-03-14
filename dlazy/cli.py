@@ -226,6 +226,7 @@ def cmd_batch(args):
 def cmd_batch_status(args):
     """查看批量工作流状态 - 只读模式，不修改状态文件"""
     import json
+    import math
     import os
 
     from .constants import (
@@ -447,6 +448,7 @@ def cmd_batch_status(args):
 
     batch_statuses = []
     total_processed = 0
+    total_relay_tasks = 0
     total_olp_done = 0
     total_infer_done = 0
     total_calc_done = 0
@@ -477,27 +479,40 @@ def cmd_batch_status(args):
             batch_dir / "slurm_calc" / PROGRESS_FILE
         )
 
+    total_relay_tasks = total_processed - total_original_tasks
+
+    batch_size = (
+        math.ceil(total_original_tasks / total_batches) if total_batches > 0 else 0
+    )
+
+    def get_batch_original_count(batch_idx, total_original, batch_sz, total_b):
+        if batch_sz == 0 or total_original == 0:
+            return 0
+        start = batch_idx * batch_sz
+        if start >= total_original:
+            return 0
+        return min(batch_sz, total_original - start)
+
     permanent_errors = get_permanent_errors(workdir)
     total_permanent_errors = len(permanent_errors)
     retrying_tasks = total_errors - total_permanent_errors
     success_tasks = total_calc_done
 
     print()
-    print("━" * 54)
-    print("                      总体进度")
-    print("━" * 54)
-    print(
-        f"原始任务: {total_original_tasks} (todo_list.json)"
-        if total_original_tasks > 0
-        else "原始任务: -"
-    )
-    processed_str = f"已处理:   {total_processed} (含重试)"
+    print("━" * 60)
+    print("                        总体进度")
+    print("━" * 60)
+    print(f"原始任务: {total_original_tasks}")
+    relay_str = f"处理次数: {total_processed} (原始 {total_original_tasks}"
+    if total_relay_tasks > 0:
+        relay_str += f" + 中继 {total_relay_tasks})"
+    else:
+        relay_str += ")"
+    print(relay_str)
     if total_processed > 0:
         print(
-            f"{processed_str} | 成功: {success_tasks} | 重试中: {retrying_tasks} | 永久失败: {total_permanent_errors}"
+            f"成功: {success_tasks} | 重试中: {retrying_tasks} | 永久失败: {total_permanent_errors}"
         )
-    else:
-        print(processed_str)
     print()
     print("┌" + "─" * 62 + "┐")
     print("│ 阶段  │ 完成  │ 成功  │ 失败  │ 进度                           │")
@@ -535,12 +550,12 @@ def cmd_batch_status(args):
     print("└" + "─" * 62 + "┘")
 
     print()
-    print("━" * 54)
-    print("                    各批次详情")
-    print("━" * 54)
-    header = f"{'批次':<12} {'任务':>5}  {'OLP':>6}  {'Infer':>6}  {'Calc':>6}  {'错误':>4}  {'状态':<6}  {'时间':<18}"
+    print("━" * 70)
+    print("                          各批次详情")
+    print("━" * 70)
+    header = f"{'批次':<12} {'任务(原+中继)':>14}  {'OLP':>6}  {'Infer':>6}  {'Calc':>6}  {'状态':<6}"
     print(header)
-    print("─" * 54)
+    print("─" * 70)
 
     for batch_idx, batch_status in enumerate(batch_statuses):
         batch_name = f"batch.{batch_idx:05d}"
@@ -550,9 +565,13 @@ def cmd_batch_status(args):
         calc = batch_status["calc_done"]
         errors = batch_status["errors"]
         status = batch_status["status"]
-        time_str = format_time_display(
-            batch_status["start_time"], batch_status["end_time"], status
+
+        batch_original = get_batch_original_count(
+            batch_idx, total_original_tasks, batch_size, total_batches
         )
+        batch_relay = total - batch_original
+        if batch_relay < 0:
+            batch_relay = 0
 
         if status == "completed":
             status_icon = "✓"
@@ -594,8 +613,13 @@ def cmd_batch_status(args):
             else ("○" if status == "running" else "-"),
         )
 
+        task_str = (
+            f"{total} ({batch_original}+{batch_relay})"
+            if batch_relay > 0
+            else str(total)
+        )
         print(
-            f"{batch_name:<12} {total:>5}  {olp_str:>6}  {infer_str:>6}  {calc_str:>6}  {errors:>4}  {status_display:<6}  {time_str:<18}"
+            f"{batch_name:<12} {task_str:>14}  {olp_str:>6}  {infer_str:>6}  {calc_str:>6}  {status_display:<6}"
         )
 
     print()
