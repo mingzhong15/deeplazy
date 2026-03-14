@@ -900,21 +900,6 @@ class BatchScheduler(WorkflowBase):
 
         failed_paths = all_paths - calc_success
 
-        perm_file = self.ctx.workflow_root / "permanent_errors.jsonl"
-        if perm_file.exists():
-            try:
-                permanent_paths = set()
-                for t in _read_jsonl(perm_file):
-                    if "path" in t:
-                        permanent_paths.add(t["path"])
-                if permanent_paths:
-                    failed_paths = failed_paths - permanent_paths
-                    self.logger.info(
-                        "Excluded %d permanent failure tasks", len(permanent_paths)
-                    )
-            except json.JSONDecodeError as e:
-                self.logger.warning("Failed to parse permanent_errors.jsonl: %s", e)
-
         retry_tasks = [t for t in all_tasks if t["path"] in failed_paths]
 
         output_file.parent.mkdir(parents=True, exist_ok=True)
