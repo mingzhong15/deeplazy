@@ -305,7 +305,7 @@ class OLPCommandExecutor:
             logger.error("OLP failed: %s", e)
             write_progress("error")
             # 记录错误到error_tasks.jsonl
-            from .error_handler import ErrorContext, record_error
+            from .core.workflow_state import ErrorContext, record_error
 
             record_error(
                 ErrorContext(
@@ -799,7 +799,7 @@ class InferCommandExecutor:
         except Exception as e:
             logger.error("Infer failed: %s", e)
             # 记录整组失败到error_tasks.jsonl
-            from .error_handler import ErrorContext, record_error
+            from .core.workflow_state import ErrorContext, record_error
 
             for i, infer_task in enumerate(infer_tasks):
                 label = infer_task.path
@@ -1031,7 +1031,7 @@ class CalcCommandExecutor:
             logger.error("Calc failed: %s", e)
             write_progress("error")
             # 记录错误到error_tasks.jsonl
-            from .error_handler import ErrorContext, record_error
+            from .core.workflow_state import ErrorContext, record_error
 
             record_error(
                 ErrorContext(
