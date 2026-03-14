@@ -1,0 +1,20 @@
+{
+  "active_plan": "/public/home/mind/zeng/github/deeplazy/.sisyphus/plans/workflow-optimization-v3.md",
+  "started_at": "2026-03-14T15:02:03.036Z",
+  "session_ids": [
+    "ses_3135c3315ffeUwX72xYmCv4uD8"
+  ],
+  "plan_name": "workflow-optimization-v3",
+  "agent": "atlas",
+  "worktree_path": "/public/home/mind/zeng/github/deeplazy",
+  "current_wave": 1,
+  "wave1_status": "completed",
+  "wave1_tasks": {
+    "task1": "completed",
+    "task2": "completed",
+    "task3": "completed",
+    "task4": "completed",
+    "task5": "completed"
+  },
+  "current_tasks": [6, 7, 8, 9, 10, 11, 12]
+}

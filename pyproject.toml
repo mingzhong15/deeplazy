@@ -6,10 +6,18 @@ build-backend = "setuptools.build_meta"
 name = "dlazy"
 version = "2.14.2"
 description = "Material calculation workflow automation system"
-requires-python = ">=3.8"
 dependencies = [
     "pyyaml>=6.0",
     "h5py>=3.0",
+    "jinja2>=3.0",
+    "rich>=13.0.0",
+    "xxhash>=3.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
 ]
 
 [project.scripts]
@@ -21,3 +29,32 @@ package-dir = {"" = "."}
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["dlazy*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+markers = [
+    "slurm: marks tests requiring SLURM cluster",
+    "slow: marks tests that take a long time",
+    "integration: marks integration tests",
+]
+addopts = "-v --tb=short"
+
+[tool.coverage.run]
+source = ["dlazy"]
+branch = true
+omit = [
+    "tests/*",
+    "*/__pycache__/*",
+]
+
+[tool.coverage.report]
+fail_under = 80
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+]
