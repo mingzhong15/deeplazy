@@ -94,6 +94,8 @@ def generate_embedded_olp_script(
     array_size = slurm_config.get("array_size", 10)
     modules = slurm_config.get("modules", [])
     env_vars = slurm_config.get("env_vars", {})
+    exclude = slurm_config.get("exclude", "")
+    exclude_line = f"#SBATCH --exclude={exclude}\n" if exclude else ""
 
     modules_section = _format_modules(modules)
     env_vars_section = _format_env_vars(env_vars)
@@ -113,7 +115,7 @@ def generate_embedded_olp_script(
 #SBATCH --job-name={job_name}
 #SBATCH --array=1-{actual_array_size}
 #SBATCH --partition={partition}
-#SBATCH --nodes={nodes}
+{exclude_line}#SBATCH --nodes={nodes}
 #SBATCH --ntasks-per-node={ntasks}
 #SBATCH --time={time_limit}
 
@@ -197,7 +199,7 @@ echo "[OLP] Finished at: $(date)"
 #SBATCH --job-name={job_name}
 #SBATCH --array=1-{actual_array_size}
 #SBATCH --partition={partition}
-#SBATCH --nodes={nodes}
+{exclude_line}#SBATCH --nodes={nodes}
 #SBATCH --ntasks-per-node={ntasks}
 #SBATCH --time={time_limit}
 
@@ -275,6 +277,8 @@ def generate_embedded_infer_script(
     array_size = slurm_config.get("array_size", 20)
     modules = slurm_config.get("modules", [])
     env_vars = slurm_config.get("env_vars", {})
+    exclude = slurm_config.get("exclude", "")
+    exclude_line = f"#SBATCH --exclude={exclude}\n" if exclude else ""
 
     modules_section = _format_modules(modules)
     env_vars_section = _format_env_vars(env_vars)
@@ -293,7 +297,7 @@ def generate_embedded_infer_script(
 #SBATCH --job-name={job_name}
 #SBATCH --array=1-{actual_array_size}
 #SBATCH --partition={partition}
-#SBATCH --nodes={nodes}
+{exclude_line}#SBATCH --nodes={nodes}
 #SBATCH --ntasks-per-node={ntasks}
 #SBATCH --cpus-per-task={cpus_per_task}
 #SBATCH --time={time_limit}
@@ -399,7 +403,7 @@ echo "[Infer] Finished at: $(date)"
 #SBATCH --job-name={job_name}
 #SBATCH --array=1-{actual_array_size}
 #SBATCH --partition={partition}
-#SBATCH --nodes={nodes}
+{exclude_line}#SBATCH --nodes={nodes}
 #SBATCH --ntasks-per-node={ntasks}
 #SBATCH --cpus-per-task={cpus_per_task}
 #SBATCH --time={time_limit}
@@ -476,6 +480,8 @@ def generate_embedded_calc_script(
     array_size = slurm_config.get("array_size", 10)
     modules = slurm_config.get("modules", [])
     env_vars = slurm_config.get("env_vars", {})
+    exclude = slurm_config.get("exclude", "")
+    exclude_line = f"#SBATCH --exclude={exclude}\n" if exclude else ""
 
     modules_section = _format_modules(modules)
     env_vars_section = _format_env_vars(env_vars)
@@ -495,7 +501,7 @@ def generate_embedded_calc_script(
 #SBATCH --job-name={job_name}
 #SBATCH --array=1-{actual_array_size}
 #SBATCH --partition={partition}
-#SBATCH --nodes={nodes}
+{exclude_line}#SBATCH --nodes={nodes}
 #SBATCH --ntasks-per-node={ntasks}
 #SBATCH --time={time_limit}
 
@@ -582,7 +588,7 @@ echo "[Calc] Finished at: $(date)"
 #SBATCH --job-name={job_name}
 #SBATCH --array=1-{actual_array_size}
 #SBATCH --partition={partition}
-#SBATCH --nodes={nodes}
+{exclude_line}#SBATCH --nodes={nodes}
 #SBATCH --ntasks-per-node={ntasks}
 #SBATCH --time={time_limit}
 

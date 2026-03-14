@@ -665,6 +665,7 @@ def cmd_batch_retry_tasks(args):
     from .batch_workflow import BatchScheduler
     from .contexts import BatchContext
     from .utils import get_existing_batch_count, get_next_backup_index
+    from .utils.concurrency import atomic_write_json
 
     config_path = validate_path(args.config, must_exist=True)
     workdir = (
@@ -712,11 +713,21 @@ def cmd_batch_retry_tasks(args):
         if state_file.exists():
             with open(state_file, "r", encoding="utf-8") as f:
                 state = json.load(f)
-            state["initialized"] = False
-            state["start_batch_index"] = existing_count
-            state["current_batch"] = existing_count
-            with open(state_file, "w", encoding="utf-8") as f:
-                json.dump(state, f, indent=2)
+            state.update(
+                {
+                    "initialized": False,
+                    "start_batch_index": existing_count,
+                    "current_batch": existing_count,
+                    "current_stage": "olp",
+                    "completed_batches": [],
+                    "total_batches": 0,
+                    "olp_completed": False,
+                    "infer_completed": False,
+                    "calc_completed": False,
+                    "current_job_id": None,
+                }
+            )
+            atomic_write_json(state_file, state)
             print(f"已重置状态，将从 batch.{existing_count:05d} 开始")
 
         ctx_run = BatchContext(
