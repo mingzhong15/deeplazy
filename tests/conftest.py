@@ -55,11 +55,20 @@ software:
 
 
 @pytest.fixture
+def sample_hdf5(temp_workdir):
+    """Create a sample HDF5 file for general testing."""
+    path = temp_workdir / "sample.h5"
+    with h5py.File(path, "w") as f:
+        f.create_dataset("data", data=np.random.rand(5, 5))
+        f.attrs["test"] = "sample"
+    return path
+
+
+@pytest.fixture
 def valid_overlaps_h5(temp_workdir):
     """Create a valid overlaps HDF5 file."""
     path = temp_workdir / "valid_overlaps.h5"
     with h5py.File(path, "w") as f:
-        # Create sample overlap data
         f.create_dataset("overlaps", data=np.random.rand(10, 10, 10, 10))
         f.attrs["description"] = "Sample overlap matrix"
     return path
