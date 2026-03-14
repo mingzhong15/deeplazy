@@ -305,6 +305,34 @@ See `examples/demo-workflow/global_config.yaml` for an example configuration fil
 
 ## Changelog
 
+### v2.12.0 (2026-03-14)
+
+**Feature: Task Tracking & Statistics Improvement**
+
+1. **Extended Task Data Structure**
+   - Added `source_batch` field to track task origin (-1 = original, N = from batch N)
+   - Added `retry_count` field to track retry attempts
+   - Applied to OlpTask, InferTask, CalcTask
+
+2. **Improved Relay Logic**
+   - Failed tasks now carry source information when forwarded
+   - Permanent failure based on `retry_count >= MAX_RETRY_COUNT` instead of batch index
+
+3. **Better Statistics Display**
+   - Distinguish original tasks vs relay tasks: `200 (173+27)` = 173 original + 27 relay
+   - Show processing count: `处理次数: 2008 (原始 1557 + 中继 451)`
+   - Clearer batch status with per-batch breakdown
+
+4. **Infer Executor Improvements**
+   - Warning when auxiliary files missing (info.json, POSCAR)
+   - Node error detection and reporting
+   - Better error messages for debugging
+
+**Bug Fixes:**
+- Fixed import paths after module refactoring (dlazy.record_utils → dlazy.core.tasks)
+- Added `report_error()` method for backward compatibility
+- Fixed `validate_path()` to default to cwd for relative paths
+
 ### v2.11.0 (2026-03-13)
 
 **Documentation: Architecture & Data Flow**
