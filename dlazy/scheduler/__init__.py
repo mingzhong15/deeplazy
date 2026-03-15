@@ -8,6 +8,7 @@ from dlazy.scheduler.base import (
     SubmitConfig,
 )
 from dlazy.scheduler.slurm import SlurmScheduler
+from dlazy.scheduler.job_manager import JobManager
 
 __all__ = [
     "JobInfo",
@@ -16,4 +17,5 @@ __all__ = [
     "SchedulerError",
     "SubmitConfig",
     "SlurmScheduler",
+    "JobManager",
 ]
