@@ -24,6 +24,8 @@ from .constants import (
 )
 from .contexts import BatchContext
 from .core.exceptions import AbortException
+from dlazy.scheduler import SlurmScheduler, JobManager, SubmitConfig
+from dlazy.state import TaskStateStore, CheckpointManager
 from .core import (
     ErrorTask,
     OlpTask,
@@ -59,6 +61,12 @@ class BatchScheduler(WorkflowBase):
         self.logger = get_logger("batch_scheduler")
         self.state: Dict[str, Any] = self._load_or_init_state()
         self.config = load_yaml_config(self.ctx.config_path)
+
+        # Initialize new scheduler components (lazy initialization)
+        self._new_scheduler: Optional[SlurmScheduler] = None
+        self._job_manager: Optional[JobManager] = None
+        self._task_store: Optional[TaskStateStore] = None
+        self._checkpoint_manager: Optional[CheckpointManager] = None
 
         if self.ctx.monitor is not None:
             self.monitor = self.ctx.monitor
@@ -431,6 +439,38 @@ class BatchScheduler(WorkflowBase):
             return path
         return software_config.get("python", "python")
 
+    def _init_new_scheduler(self) -> None:
+        """Initialize new scheduler components if on SLURM."""
+        if self._new_scheduler is not None:
+            return
+
+        if shutil.which("sbatch"):
+            self._new_scheduler = SlurmScheduler(retry_count=3, retry_delay=10.0)
+            self._task_store = TaskStateStore()
+            self._job_manager = JobManager(
+                scheduler=self._new_scheduler,
+                state_store=self._task_store,
+            )
+            self._checkpoint_manager = CheckpointManager(
+                checkpoint_dir=self.ctx.workflow_root / "checkpoints"
+            )
+            self.logger.info("Initialized new scheduler components")
+
+    def _submit_slurm_job_new(
+        self, script_path: Path, job_name: str, config: Optional[SubmitConfig] = None
+    ) -> str:
+        """Submit job using new SlurmScheduler."""
+        assert self._new_scheduler is not None
+        if config is None:
+            config = SubmitConfig(job_name=job_name)
+        return self._new_scheduler.submit(script_path, config)
+
+    def _check_slurm_job_state_new(self, job_id: str) -> str:
+        """Check job state using new SlurmScheduler."""
+        assert self._new_scheduler is not None
+        status = self._new_scheduler.check_status(job_id)
+        return str(status)
+
     def _submit_slurm_job(
         self,
         script_path: Path,
@@ -455,6 +495,10 @@ class BatchScheduler(WorkflowBase):
         Raises:
             RuntimeError: If all retry attempts fail
         """
+        self._init_new_scheduler()
+        if self._new_scheduler:
+            return self._submit_slurm_job_new(script_path, job_name)
+
         last_error = ""
         for attempt in range(1, max_retries + 1):
             result = subprocess.run(
@@ -492,6 +536,9 @@ class BatchScheduler(WorkflowBase):
         """Check SLURM job state."""
         if not job_id:
             return "UNKNOWN"
+
+        if self._new_scheduler:
+            return self._check_slurm_job_state_new(job_id)
 
         main_job_id = job_id.split("_")[0]
         result = subprocess.run(
@@ -596,7 +643,17 @@ class BatchScheduler(WorkflowBase):
         self.state["current_stage"] = stage
         self._save_state()
 
-        return self._wait_for_job_completion(job_id, stage)
+        success = self._wait_for_job_completion(job_id, stage)
+
+        if success and self._checkpoint_manager:
+            output_dir = getattr(resolver, f"get_{stage}_output_dir")()
+            self._checkpoint_manager.save_checkpoint(
+                task_id=f"batch_{resolver.batch_index}_{stage}",
+                output_path=str(output_dir),
+                stage=stage,
+            )
+
+        return success
 
     def _has_pending_batches(self) -> bool:
         """Check if there are pending batches to process."""

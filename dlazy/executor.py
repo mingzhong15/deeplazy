@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import multiprocessing
 import secrets
+import shutil
 from datetime import datetime
 from functools import partial
 from pathlib import Path
@@ -30,12 +31,56 @@ from .utils import (
     load_global_config_section,
 )
 
+# New execution module imports
+from dlazy.execution import (
+    create_executor,
+    Executor,
+    ExecutorContext,
+    TaskResult,
+    TaskStatus,
+)
+from dlazy.scheduler import JobManager, SlurmScheduler, SubmitConfig
+from dlazy.state import CheckpointManager, TaskStateStore
+from dlazy.core.tasks import OlpTask, InferTask, CalcTask
+
 if TYPE_CHECKING:
     from .core.workflow_state import JobMonitor, TaskError
 
 
 class WorkflowExecutor:
     """工作流执行器 - 封装三阶段逻辑"""
+
+    @staticmethod
+    def _detect_slurm() -> bool:
+        """Detect if SLURM scheduler is available."""
+        return shutil.which("sbatch") is not None
+
+    @staticmethod
+    def _create_olp_executor_context(ctx: OLPContext) -> ExecutorContext:
+        return ExecutorContext(
+            config=ctx.config,
+            workdir=ctx.result_dir,
+            stage="olp",
+            monitor=ctx.monitor,
+        )
+
+    @staticmethod
+    def _create_infer_executor_context(ctx: InferContext) -> ExecutorContext:
+        return ExecutorContext(
+            config=ctx.config,
+            workdir=ctx.result_dir,
+            stage="infer",
+            monitor=ctx.monitor,
+        )
+
+    @staticmethod
+    def _create_calc_executor_context(ctx: CalcContext) -> ExecutorContext:
+        return ExecutorContext(
+            config=ctx.config,
+            workdir=ctx.result_dir,
+            stage="calc",
+            monitor=ctx.monitor,
+        )
 
     # ==================== OLP 阶段 ====================
 
@@ -49,6 +94,7 @@ class WorkflowExecutor:
         stru_log: Optional[str] = None,
         monitor: Optional[JobMonitor] = None,
         batch_index: Optional[int] = None,
+        use_new_executor: bool = False,
     ) -> Dict[str, int]:
         """
         执行 OLP 阶段
@@ -62,6 +108,7 @@ class WorkflowExecutor:
             stru_log: 结构列表文件（覆盖配置）
             monitor: 作业监控器
             batch_index: batch索引（batch模式）
+            use_new_executor: 使用新执行器架构（默认False，安全回滚）
 
         Returns:
             {'success': N, 'failed': M, 'skipped': K}
@@ -107,10 +154,10 @@ class WorkflowExecutor:
         records = WorkflowExecutor._read_olp_records(ctx, start, end, path_resolver)
         logger.info("读取到 %d 条记录", len(records))
 
-        max_processes = ctx.max_processes
-        with multiprocessing.Pool(processes=max_processes) as pool:
-            execute_func = partial(OLPCommandExecutor.execute, ctx=ctx)
-            results = pool.map(execute_func, records)
+        if use_new_executor:
+            results = WorkflowExecutor._run_olp_with_new_executor(ctx, records, logger)
+        else:
+            results = WorkflowExecutor._run_olp_legacy(ctx, records)
 
         if monitor:
             from .core.workflow_state import TaskError
@@ -132,7 +179,7 @@ class WorkflowExecutor:
                     )
 
             if monitor.should_abort():
-                raise AbortException(monitor.state.abort_reason)
+                raise AbortException(monitor.state.abort_reason or "Abort requested")
 
         stats = WorkflowExecutor._summarize_results(results)
         logger.info("run_olp_stage 完成: %s", stats)
@@ -143,6 +190,38 @@ class WorkflowExecutor:
 
         return stats
 
+    @staticmethod
+    def _run_olp_legacy(ctx: OLPContext, records: List[str]) -> List[Tuple[str, str]]:
+        max_processes = ctx.max_processes
+        with multiprocessing.Pool(processes=max_processes) as pool:
+            execute_func = partial(OLPCommandExecutor.execute, ctx=ctx)
+            results = pool.map(execute_func, records)
+        return results
+
+    @staticmethod
+    def _run_olp_with_new_executor(
+        ctx: OLPContext, records: List[str], logger: Any
+    ) -> List[Tuple[str, str]]:
+        executor = create_executor(
+            "olp",
+            config={
+                "commands": ctx.config.get("commands", {}),
+                "num_cores": ctx.num_cores,
+                "max_processes": ctx.max_processes,
+                "node_error_flag": ctx.node_error_flag,
+            },
+        )
+
+        exec_ctx = WorkflowExecutor._create_olp_executor_context(ctx)
+        results: List[Tuple[str, str]] = []
+
+        for path in records:
+            task = OlpTask(path=path)
+            result = executor.run(task, exec_ctx)
+            results.append((result.status.value, path))
+
+        return results
+
     # ==================== Infer 阶段 ====================
 
     @staticmethod
@@ -152,6 +231,7 @@ class WorkflowExecutor:
         path_resolver: Optional[PathResolver] = None,
         workdir: Optional[str] = None,
         batch_index: Optional[int] = None,
+        use_new_executor: bool = False,
     ) -> Dict[str, Any]:
         """
         执行 Infer 阶段
@@ -162,6 +242,7 @@ class WorkflowExecutor:
             path_resolver: 路径解析器（用于run/batch模式统一）
             workdir: 工作目录
             batch_index: batch索引（batch模式）
+            use_new_executor: 使用新执行器架构（默认False，安全回滚）
 
         Returns:
             执行结果
@@ -207,13 +288,49 @@ class WorkflowExecutor:
             dataset_prefix=config.get("dataset_prefix", "dataset"),
         )
 
-        try:
-            result = InferCommandExecutor.execute(group_index, ctx)
-            logger.info("run_infer_stage 完成: %s", result)
-            return result
-        except Exception as e:
-            logger.error("run_infer_stage 失败: %s", e)
-            raise
+        if use_new_executor:
+            result = WorkflowExecutor._run_infer_with_new_executor(
+                group_index, ctx, logger
+            )
+        else:
+            try:
+                result = InferCommandExecutor.execute(group_index, ctx)
+                logger.info("run_infer_stage 完成: %s", result)
+            except Exception as e:
+                logger.error("run_infer_stage 失败: %s", e)
+                raise
+
+        return result
+
+    @staticmethod
+    def _run_infer_with_new_executor(
+        group_index: int, ctx: InferContext, logger: Any
+    ) -> Dict[str, Any]:
+        executor = create_executor(
+            "infer",
+            config={
+                "commands": ctx.config.get("commands", {}),
+                "num_groups": ctx.num_groups,
+                "parallel": ctx.parallel,
+                "model_dir": str(ctx.model_dir),
+            },
+        )
+
+        exec_ctx = WorkflowExecutor._create_infer_executor_context(ctx)
+
+        task = InferTask(path="", scf_path="")
+        result = executor.run(task, exec_ctx)
+
+        if result.is_failed:
+            logger.error("run_infer_stage 失败: %s", result.errors)
+            raise RuntimeError(f"Infer failed: {result.errors}")
+
+        logger.info("run_infer_stage 完成: group=%d", group_index)
+        return {
+            "group_index": group_index,
+            "status": "success",
+            "output": str(result.output_path),
+        }
 
     # ==================== Calc 阶段 ====================
 
@@ -227,6 +344,7 @@ class WorkflowExecutor:
         stru_log: Optional[str] = None,
         monitor: Optional[JobMonitor] = None,
         batch_index: Optional[int] = None,
+        use_new_executor: bool = False,
     ) -> Dict[str, int]:
         """
         执行 Calc 阶段
@@ -240,6 +358,7 @@ class WorkflowExecutor:
             stru_log: 结构列表文件（覆盖默认hamlog）
             monitor: 作业监控器
             batch_index: batch索引（batch模式）
+            use_new_executor: 使用新执行器架构（默认False，安全回滚）
 
         Returns:
             {'success': N, 'failed': M}
@@ -281,9 +400,10 @@ class WorkflowExecutor:
         )
         logger.info("读取到 %d 条记录", len(records))
 
-        with multiprocessing.Pool(processes=1) as pool:
-            execute_func = partial(CalcCommandExecutor.execute, ctx=ctx)
-            results = pool.map(execute_func, records)
+        if use_new_executor:
+            results = WorkflowExecutor._run_calc_with_new_executor(ctx, records, logger)
+        else:
+            results = WorkflowExecutor._run_calc_legacy(ctx, records)
 
         if monitor:
             from .core.workflow_state import TaskError
@@ -305,11 +425,41 @@ class WorkflowExecutor:
                     )
 
             if monitor.should_abort():
-                raise AbortException(monitor.state.abort_reason)
+                raise AbortException(monitor.state.abort_reason or "Abort requested")
 
         stats = WorkflowExecutor._summarize_results(results)
         logger.info("run_calc_stage 完成: %s", stats)
         return stats
+
+    @staticmethod
+    def _run_calc_legacy(
+        ctx: CalcContext, records: List[Tuple[str, str]]
+    ) -> List[Tuple[str, str]]:
+        with multiprocessing.Pool(processes=1) as pool:
+            execute_func = partial(CalcCommandExecutor.execute, ctx=ctx)
+            results = pool.map(execute_func, records)
+        return results
+
+    @staticmethod
+    def _run_calc_with_new_executor(
+        ctx: CalcContext, records: List[Tuple[str, str]], logger: Any
+    ) -> List[Tuple[str, str]]:
+        executor = create_executor(
+            "calc",
+            config={
+                "commands": ctx.config.get("commands", {}),
+            },
+        )
+
+        exec_ctx = WorkflowExecutor._create_calc_executor_context(ctx)
+        results: List[Tuple[str, str]] = []
+
+        for path, geth_path in records:
+            task = CalcTask(path=path, geth_path=geth_path)
+            result = executor.run(task, exec_ctx)
+            results.append((result.status.value, path))
+
+        return results
 
     # ==================== 辅助函数 ====================
 
