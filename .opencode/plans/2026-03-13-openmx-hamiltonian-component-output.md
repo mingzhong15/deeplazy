@@ -4,12 +4,27 @@
 
 **Goal:** Add optional output for Hamiltonian components (H0, HNL, HVNA) to OpenMX `.scfout` binary file, enabling machine learning of SCF-dependent terms.
 
-**Architecture:** Modify `SCF2File.c` to output additional Hamiltonian components (H0, HNL, HVNA) after existing data. Add input parameter `Hamiltonian.Components.Output` to control output. Modify `read_scfout.c` to read the new components. No new dependencies required.
+**Architecture:** Modify `SCF2File.c` to output additional Hamiltonian components after existing data. Add input parameter `Hamiltonian.Components.Output` to control output. Create `openmx_get_data_ext.jl` to read the new components. No modifications to `read_scfout.c` (OpenMX's built-in post-processing tools).
 
-**Tech Stack:** C, MPI, OpenMX 3.9.9
+**Tech Stack:** C, MPI, OpenMX 3.9.9, Julia
 
 **Remote Server:** cpu.tj.th-3k.dkvpn  
 **OpenMX Source Path:** /thfs4/home/xuyong/software/openmx/openmx3.9_modify_output/source/
+**Julia Script Path:** /thfs4/home/xuyong/script/
+
+---
+
+## Backward Compatibility Guarantee
+
+| Scenario | Behavior |
+|----------|----------|
+| User does NOT set `Hamiltonian.Components.Output` | ✅ Identical to original OpenMX, no extra output |
+| User sets `Hamiltonian.Components.Output on` | ✅ New format file with extra data appended at end |
+| New `openmx_get_data_ext.jl` reads old `.scfout` | ✅ Detects missing data via fread return, skips |
+| Old `openmx_get_data.jl` reads new `.scfout` | ✅ Only reads known data, ignores extra at end |
+| Old OpenMX tools read new `.scfout` | ✅ Works normally, ignores extra data |
+
+**Key:** Extra data is APPENDED after all existing data. No version change required.
 
 ---
 
@@ -18,19 +33,26 @@
 ### Files to Modify (on remote server)
 ```
 /thfs4/home/xuyong/software/openmx/openmx3.9_modify_output/source/
-├── openmx_common.h    # Add control variable
-├── Input_std.c        # Add input parameter parsing
-├── SCF2File.c         # Add H0, HNL, HVNA output
-├── read_scfout.h      # Add new variable declarations
-└── read_scfout.c      # Add reading of new components
+├── openmx_common.h    # Add control variable (follow existing pattern)
+├── Input_std.c        # Add input parameter parsing + variable definition
+└── SCF2File.c         # Add H0, HNL, HVNA output with Cnt_switch handling
 ```
 
-### No New Files Required
-沿用现有二进制格式，输出到 `.scfout` 文件末尾。
+### Files to Create
+```
+/thfs4/home/xuyong/script/
+└── openmx_get_data_ext.jl  # Extended Julia script for H0/HNL/HVNA extraction
+```
+
+### Files NOT Modified
+```
+read_scfout.h  # Not needed - OpenMX's built-in tools don't need H0/HNL/HVNA
+read_scfout.c  # Not needed - custom Julia script handles the reading
+```
 
 ### Output Data Order (modified `.scfout`)
 ```
-=== Existing Output ===
+=== Existing Output (unchanged) ===
 1. Header (atomnum, SpinP_switch, etc.)
 2. Connectivity (atv, FNAN, natn, ncn, etc.)
 3. H[spin]           - Total Hamiltonian
@@ -40,8 +62,8 @@
 7. DM, iDM           - Density matrix
 8. Footer (ChemP, E_Temp, input file)
 
-=== New Output (when Hamiltonian.Components.Output=on) ===
-9. H0                - Kinetic energy (spin-independent)
+=== New Output (appended when Hamiltonian.Components.Output=on) ===
+9. H0                - Kinetic energy (spin-independent, component 0)
 10. HNL[spin]        - Nonlocal pseudopotential real part
 11. HVNA             - VNA potential (spin-independent)
 ```
@@ -59,15 +81,19 @@
 
 Run: `ssh cpu.tj.th-3k.dkvpn "grep -n 'level_fileout' /thfs4/home/xuyong/software/openmx/openmx3.9_modify_output/source/openmx_common.h | head -3"`
 
-- [ ] **Step 2: Add the control variable**
+- [ ] **Step 2: Add the control variable (follow existing pattern)**
 
-After the `level_fileout` related declaration, add:
+Find the line like:
 ```c
-/* Hamiltonian component output control */
-extern int H_Component_Output;   /* 0: off (default), 1: on */
+int Num_Mixing_pDM,level_stdout,level_fileout,HS_fileout;
 ```
 
-> **Note:** Use `extern` (not `static`) to avoid each .c file having its own copy.
+Add `H_Component_Output` to this line:
+```c
+int Num_Mixing_pDM,level_stdout,level_fileout,HS_fileout,H_Component_Output;
+```
+
+> **Note:** Follow the existing pattern - define directly in header (not extern). This is OpenMX's convention.
 
 - [ ] **Step 3: Verify modification**
 
@@ -98,10 +124,7 @@ After the `input_int("level.of.fileout",...)` line, add:
   input_int("Hamiltonian.Components.Output", &H_Component_Output, 0);
 ```
 
-> **Note:** The variable definition (not extern) should be added in Input_std.c:
-> ```c
-> int H_Component_Output = 0;  /* definition */
-> ```
+The default value is `0` (off), ensuring backward compatibility.
 
 - [ ] **Step 3: Verify modification**
 
@@ -122,17 +145,12 @@ ssh cpu.tj.th-3k.dkvpn "cd /thfs4/home/xuyong/software/openmx/openmx3.9_modify_o
 **Files:**
 - Modify: `/thfs4/home/xuyong/software/openmx/openmx3.9_modify_output/source/SCF2File.c`
 
-- [ ] **Step 1: Find where to add new output**
+- [ ] **Step 1: Find insertion point (after iDM output)**
 
-Run: `ssh cpu.tj.th-3k.dkvpn "grep -n 'density matrix\|DM and iDM' /thfs4/home/xuyong/software/openmx/openmx3.9_modify_output/source/SCF2File.c | head -5"`
+Run: `ssh cpu.tj.th-3k.dkvpn "grep -n 'iDM\|density matrix' /thfs4/home/xuyong/software/openmx/openmx3.9_modify_output/source/SCF2File.c | head -10"`
 
-- [ ] **Step 2: Read the DM output section for reference**
+- [ ] **Step 2: Add H0 output after iDM output block**
 
-Run: `ssh cpu.tj.th-3k.dkvpn "sed -n '700,800p' /thfs4/home/xuyong/software/openmx/openmx3.9_modify_output/source/SCF2File.c"`
-
-- [ ] **Step 3: Add H0 output after iDM output**
-
-After the iDM output block, before the "Solver" output, add:
 ```c
   /***************************************************************
       H0: kinetic energy matrix (component 0 only)
@@ -140,6 +158,8 @@ After the iDM output block, before the "Solver" output, add:
             k=0: main kinetic+VNL matrix (used in Hamiltonian)
             k=1,2,3: spatial derivatives (used in force calculations)
             H0 is spin-independent, so only H0[0] is output
+            
+      Cnt_switch handling: Use CntH0 when Cnt_switch==1
   ****************************************************************/
 
   if (H_Component_Output == 1) {
@@ -158,10 +178,20 @@ After the iDM output block, before the "Solver" output, add:
           wan2 = WhatSpecies[Gh_AN];
           TNO2 = Spe_Total_CNO[wan2];
 
-          for (i=0; i<TNO1; i++){
-            for (j=0; j<TNO2; j++){
-              Tmp_Vec[num] = H0[0][Mc_AN][h_AN][i][j];
-              num++;
+          if (Cnt_switch==0){
+            for (i=0; i<TNO1; i++){
+              for (j=0; j<TNO2; j++){
+                Tmp_Vec[num] = H0[0][Mc_AN][h_AN][i][j];
+                num++;
+              }
+            }
+          }
+          else{
+            for (i=0; i<TNO1; i++){
+              for (j=0; j<TNO2; j++){
+                Tmp_Vec[num] = CntH0[0][Mc_AN][h_AN][i][j];
+                num++;
+              }
             }
           }
         }
@@ -190,10 +220,10 @@ After the iDM output block, before the "Solver" output, add:
   }
 ```
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 3: Commit**
 
 ```bash
-ssh cpu.tj.th-3k.dkvpn "cd /thfs4/home/xuyong/software/openmx/openmx3.9_modify_output/source && git add SCF2File.c && git commit -m 'feat: add H0 output to scfout'"
+ssh cpu.tj.th-3k.dkvpn "cd /thfs4/home/xuyong/software/openmx/openmx3.9_modify_output/source && git add SCF2File.c && git commit -m 'feat: add H0 output to scfout with Cnt_switch support'"
 ```
 
 ---
@@ -213,6 +243,9 @@ ssh cpu.tj.th-3k.dkvpn "cd /thfs4/home/xuyong/software/openmx/openmx3.9_modify_o
             SpinP_switch=1: List_YOUSO[5]=2 (HNL[0,1])
             SpinP_switch=3: List_YOUSO[5]=3 (HNL[0,1,2])
             HNL[0]=up-up, HNL[1]=dn-dn, HNL[2]=up-dn
+            
+      No Cnt_switch handling: HNL has no contracted version
+      (only iHNL has iCntHNL)
   ****************************************************************/
 
   if (H_Component_Output == 1) {
@@ -261,7 +294,7 @@ ssh cpu.tj.th-3k.dkvpn "cd /thfs4/home/xuyong/software/openmx/openmx3.9_modify_o
     }
 
     if (myid==Host_ID){
-      printf("  HNL (nonlocal pseudopotential) written to scfout\n");
+      printf("  HNL (nonlocal pseudopotential) written to scfout (%d spin components)\n", List_YOUSO[5]);
     }
   }
 ```
@@ -284,6 +317,11 @@ ssh cpu.tj.th-3k.dkvpn "cd /thfs4/home/xuyong/software/openmx/openmx3.9_modify_o
 ```c
   /***************************************************************
       HVNA: VNA potential (spin-independent)
+      Note: HVNA is a 4D array HVNA[Mc_AN][h_AN][i][j]
+            No spin dimension - VNA is spin-independent
+            
+      Cnt_switch handling: Use CntHVNA2 when Cnt_switch==1
+      (CntHVNA without number does not exist, use CntHVNA2)
   ****************************************************************/
 
   if (H_Component_Output == 1) {
@@ -302,10 +340,20 @@ ssh cpu.tj.th-3k.dkvpn "cd /thfs4/home/xuyong/software/openmx/openmx3.9_modify_o
           wan2 = WhatSpecies[Gh_AN];
           TNO2 = Spe_Total_CNO[wan2];
 
-          for (i=0; i<TNO1; i++){
-            for (j=0; j<TNO2; j++){
-              Tmp_Vec[num] = HVNA[Mc_AN][h_AN][i][j];
-              num++;
+          if (Cnt_switch==0){
+            for (i=0; i<TNO1; i++){
+              for (j=0; j<TNO2; j++){
+                Tmp_Vec[num] = HVNA[Mc_AN][h_AN][i][j];
+                num++;
+              }
+            }
+          }
+          else{
+            for (i=0; i<TNO1; i++){
+              for (j=0; j<TNO2; j++){
+                Tmp_Vec[num] = CntHVNA2[0][Mc_AN][h_AN][i][j];
+                num++;
+              }
             }
           }
         }
@@ -337,141 +385,336 @@ ssh cpu.tj.th-3k.dkvpn "cd /thfs4/home/xuyong/software/openmx/openmx3.9_modify_o
 - [ ] **Step 2: Commit**
 
 ```bash
-ssh cpu.tj.th-3k.dkvpn "cd /thfs4/home/xuyong/software/openmx/openmx3.9_modify_output/source && git add SCF2File.c && git commit -m 'feat: add HVNA output to scfout'"
+ssh cpu.tj.th-3k.dkvpn "cd /thfs4/home/xuyong/software/openmx/openmx3.9_modify_output/source && git add SCF2File.c && git commit -m 'feat: add HVNA output to scfout with Cnt_switch support'"
 ```
 
 ---
 
-## Chunk 3: Modify read_scfout for Reading
+## Chunk 3: Create openmx_get_data_ext.jl
 
-### Task 3.1: Add variable declarations in read_scfout.h
+### Task 3.1: Create extended Julia script
 
 **Files:**
-- Modify: `/thfs4/home/xuyong/software/openmx/openmx3.9_modify_output/source/read_scfout.h`
+- Create: `/thfs4/home/xuyong/script/openmx_get_data_ext.jl`
 
-- [ ] **Step 1: Add new variable declarations**
+- [ ] **Step 1: Read original script for reference**
 
-```c
-/* Hamiltonian components for machine learning */
-extern double *H0_scfout;
-extern double *HNL_scfout;
-extern double *HVNA_scfout;
-extern int H_Component_Output_flag;
-```
+Run: `ssh cpu.tj.th-3k.dkvpn "cat /thfs4/home/xuyong/script/openmx_get_data.jl"`
 
-- [ ] **Step 2: Commit**
+- [ ] **Step 2: Create openmx_get_data_ext.jl**
 
-```bash
-ssh cpu.tj.th-3k.dkvpn "cd /thfs4/home/xuyong/software/openmx/openmx3.9_modify_output/source && git add read_scfout.h && git commit -m 'feat: add Hamiltonian component variables to read_scfout.h'"
-```
+Based on `openmx_get_data.jl`, extend it to:
+1. Parse existing data (H, OLP, DM, etc.)
+2. After parsing all existing data, try to read H0/HNL/HVNA
+3. Use fread return value to detect if data exists (backward compatible)
+4. Output additional HDF5 files: `H0.h5`, `HNL.h5`, `HVNA.h5`
+
+See detailed implementation in Task 3.2.
+
+- [ ] **Step 3: Test with old and new format files**
 
 ---
 
-### Task 3.2: Add reading logic in read_scfout.c
+### Task 3.2: openmx_get_data_ext.jl Implementation
 
-**Files:**
-- Modify: `/thfs4/home/xuyong/software/openmx/openmx3.9_modify_output/source/read_scfout.c`
+```julia
+#!/usr/bin/env julia
+#
+# openmx_get_data_ext.jl
+# Extended version of openmx_get_data.jl with H0/HNL/HVNA extraction
+#
+# Usage: julia openmx_get_data_ext.jl <scfout_file> [output_dir]
+#
+# Output files:
+#   - hamiltonians.h5 (existing)
+#   - overlaps.h5 (existing)
+#   - H0.h5 (new)
+#   - HNL.h5 (new)
+#   - HVNA.h5 (new)
+#   - ... other existing outputs
+#
 
-- [ ] **Step 1: Add variable definitions**
+using HDF5
+using JSON
 
-```c
-/* Hamiltonian components */
-double *H0_scfout;
-double *HNL_scfout;
-double *HVNA_scfout;
-int H_Component_Output_flag = 0;
-```
+# ============================================================
+# Include all functions from original openmx_get_data.jl
+# ============================================================
 
-- [ ] **Step 2: Add reading logic before fclose(fp)**
+# [Copy all helper functions from openmx_get_data.jl]
+# multiread, read_matrix_in_mixed_matrix, etc.
 
-```c
-  /* Try to read H0, HNL, HVNA */
-  {
-    int total_size = 0;
-    size_t read_size;
-    int num_HNL_spin;  /* HNL spin count = List_YOUSO[5] */
+# ============================================================
+# New functions for H0/HNL/HVNA extraction
+# ============================================================
+
+"""
+Calculate total matrix size for H0/HNL/HVNA storage.
+This is the sum of all (TNO1 * TNO2) for each atom-neighbor pair.
+"""
+function calculate_total_matrix_size(atomnum, FNAN, natn, Total_NumOrbs)
+    total_size = 0
+    for ct_AN in 1:atomnum
+        TNO1 = Total_NumOrbs[ct_AN]
+        for h_AN in 0:FNAN[ct_AN]
+            Gh_AN = natn[ct_AN][h_AN+1]  # Julia is 1-indexed
+            TNO2 = Total_NumOrbs[Gh_AN]
+            total_size += TNO1 * TNO2
+        end
+    end
+    return total_size
+end
+
+"""
+Determine number of HNL spin components from SpinP_switch.
+Matches OpenMX's List_YOUSO[5] logic.
+"""
+function get_num_HNL_spin(SpinP_switch)
+    if SpinP_switch == 0
+        return 1
+    elseif SpinP_switch == 1
+        return 2
+    else  # SpinP_switch == 3
+        return 3
+    end
+end
+
+"""
+Try to read H0, HNL, HVNA from scfout file.
+Returns (H0, HNL, HVNA, has_components) where has_components is true if read succeeded.
+"""
+function try_read_H_components(f, atomnum, SpinP_switch, FNAN, natn, Total_NumOrbs)
+    total_size = calculate_total_matrix_size(atomnum, FNAN, natn, Total_NumOrbs)
+    num_HNL_spin = get_num_HNL_spin(SpinP_switch)
     
-    /* Determine HNL spin count from SpinP_switch (same logic as Input_std.c) */
-    if      (SpinP_switch_scfout==0) num_HNL_spin = 1;
-    else if (SpinP_switch_scfout==1) num_HNL_spin = 2;
-    else                             num_HNL_spin = 3;  /* SpinP_switch==3 */
+    # Try to read H0
+    H0_raw = Vector{Float64}(undef, total_size)
+    n_read = read!(f, H0_raw)
     
-    /* Calculate total matrix size */
-    for (ct_AN=1; ct_AN<=atomnum; ct_AN++){
-      wan1 = WhatSpecies_scfout[ct_AN];
-      TNO1 = Spe_Total_CNO_scfout[wan1];
-      for (h_AN=0; h_AN<=FNAN_scfout[ct_AN]; h_AN++){
-        Gh_AN = natn_scfout[ct_AN][h_AN];
-        wan2 = WhatSpecies_scfout[Gh_AN];
-        TNO2 = Spe_Total_CNO_scfout[wan2];
-        total_size += TNO1 * TNO2;
-      }
-    }
+    if n_read < total_size
+        # Old format file - no H0/HNL/HVNA data
+        return nothing, nothing, nothing, false
+    end
     
-    /* Try to read H0 */
-    H0_scfout = (double*)malloc(sizeof(double) * total_size);
-    read_size = fread(H0_scfout, sizeof(double), total_size, fp);
+    # Successfully read H0, now read HNL
+    HNL_raw = Vector{Float64}(undef, total_size * num_HNL_spin)
+    read!(f, HNL_raw)
     
-    if (read_size == total_size) {
-      H_Component_Output_flag = 1;
-      printf("  H0 read from scfout\n");
-      
-      /* Read HNL (CRITICAL: use num_HNL_spin, not SpinP_switch_scfout+1) */
-      HNL_scfout = (double*)malloc(sizeof(double) * total_size * num_HNL_spin);
-      for (spin=0; spin<num_HNL_spin; spin++){
-        fread(HNL_scfout + spin*total_size, sizeof(double), total_size, fp);
-      }
-      printf("  HNL read from scfout (%d spin components)\n", num_HNL_spin);
-      
-      /* Read HVNA */
-      HVNA_scfout = (double*)malloc(sizeof(double) * total_size);
-      fread(HVNA_scfout, sizeof(double), total_size, fp);
-      printf("  HVNA read from scfout\n");
-    } else {
-      H_Component_Output_flag = 0;
-      free(H0_scfout);
-      H0_scfout = NULL;
-    }
-  }
-```
+    # Read HVNA
+    HVNA_raw = Vector{Float64}(undef, total_size)
+    read!(f, HVNA_raw)
+    
+    return H0_raw, HNL_raw, HVNA_raw, true
+end
 
-- [ ] **Step 3: Commit**
+"""
+Convert raw H0/HNL/HVNA data to same format as hamiltonians dict.
+Key: [Rx, Ry, Rz, site_i, site_j] -> Matrix
+"""
+function convert_H_components_to_dict(H0_raw, HNL_raw, HVNA_raw, 
+                                       atomnum, FNAN, natn, ncn, 
+                                       Total_NumOrbs, atv_ijk, num_HNL_spin)
+    H0_dict = Dict{Vector{Int64}, Matrix{Float64}}()
+    HNL_dict = Dict{Vector{Int64}, Vector{Matrix{Float64}}}()  # Multiple spin components
+    HVNA_dict = Dict{Vector{Int64}, Matrix{Float64}}()
+    
+    offset = 0
+    for ct_AN in 1:atomnum
+        TNO1 = Total_NumOrbs[ct_AN]
+        for h_AN in 0:FNAN[ct_AN]
+            Gh_AN = natn[ct_AN][h_AN+1]
+            TNO2 = Total_NumOrbs[Gh_AN]
+            block_size = TNO1 * TNO2
+            
+            # Get lattice vector R
+            nc_idx = ncn[ct_AN][h_AN+1]
+            R = atv_ijk[:, nc_idx]
+            
+            # Key for this block
+            key = vcat(R, [ct_AN, Gh_AN])
+            
+            # Extract H0 block
+            H0_block = reshape(H0_raw[offset+1:offset+block_size], TNO2, TNO1)
+            H0_dict[key] = H0_block
+            
+            # Extract HNL blocks for each spin
+            HNL_blocks = Vector{Matrix{Float64}}(undef, num_HNL_spin)
+            for spin in 1:num_HNL_spin
+                spin_offset = (spin - 1) * length(H0_raw) + offset
+                HNL_blocks[spin] = reshape(HNL_raw[spin_offset+1:spin_offset+block_size], TNO2, TNO1)
+            end
+            HNL_dict[key] = HNL_blocks
+            
+            # Extract HVNA block
+            HVNA_block = reshape(HVNA_raw[offset+1:offset+block_size], TNO2, TNO1)
+            HVNA_dict[key] = HVNA_block
+            
+            offset += block_size
+        end
+    end
+    
+    return H0_dict, HNL_dict, HVNA_dict
+end
 
-```bash
-ssh cpu.tj.th-3k.dkvpn "cd /thfs4/home/xuyong/software/openmx/openmx3.9_modify_output/source && git add read_scfout.c && git commit -m 'feat: add Hamiltonian component reading'"
+"""
+Save H0/HNL/HVNA to HDF5 files.
+"""
+function save_H_components(H0_dict, HNL_dict, HVNA_dict, output_dir)
+    # Save H0
+    h5open(joinpath(output_dir, "H0.h5"), "w") do f
+        for (key, mat) in H0_dict
+            key_str = string(key)
+            f[key_str] = mat
+        end
+    end
+    
+    # Save HNL (with spin index in key)
+    h5open(joinpath(output_dir, "HNL.h5"), "w") do f
+        for (key, blocks) in HNL_dict
+            for (spin, mat) in enumerate(blocks)
+                key_str = string(vcat(key, [spin]))
+                f[key_str] = mat
+            end
+        end
+    end
+    
+    # Save HVNA
+    h5open(joinpath(output_dir, "HVNA.h5"), "w") do f
+        for (key, mat) in HVNA_dict
+            key_str = string(key)
+            f[key_str] = mat
+        end
+    end
+end
+
+# ============================================================
+# Main function (extended from original)
+# ============================================================
+
+function main()
+    # Parse arguments
+    if length(ARGS) < 1
+        println("Usage: julia openmx_get_data_ext.jl <scfout_file> [output_dir]")
+        exit(1)
+    end
+    
+    scfout_file = ARGS[1]
+    output_dir = length(ARGS) >= 2 ? ARGS[2] : dirname(scfout_file)
+    
+    # Open and parse scfout file
+    open(scfout_file, "r") do f
+        # [Use existing parsing logic from openmx_get_data.jl]
+        # This extracts: atomnum, SpinP_switch, Hk, OLP, DM, etc.
+        
+        # ... existing parsing code ...
+        
+        # After all existing parsing, try to read H0/HNL/HVNA
+        println("Attempting to read H0/HNL/HVNA components...")
+        
+        H0_raw, HNL_raw, HVNA_raw, has_components = try_read_H_components(
+            f, atomnum, SpinP_switch, FNAN, natn, Total_NumOrbs
+        )
+        
+        if has_components
+            println("Successfully read H0/HNL/HVNA from scfout")
+            
+            # Convert to dict format
+            H0_dict, HNL_dict, HVNA_dict = convert_H_components_to_dict(
+                H0_raw, HNL_raw, HVNA_raw,
+                atomnum, FNAN, natn, ncn, Total_NumOrbs, atv_ijk, 
+                get_num_HNL_spin(SpinP_switch)
+            )
+            
+            # Save to HDF5
+            save_H_components(H0_dict, HNL_dict, HVNA_dict, output_dir)
+            println("Saved H0.h5, HNL.h5, HVNA.h5 to $output_dir")
+        else
+            println("No H0/HNL/HVNA found in scfout (old format or not enabled)")
+        end
+    end
+    
+    # [Continue with existing processing from openmx_get_data.jl]
+    # ... existing code ...
+end
+
+main()
 ```
 
 ---
 
 ## Chunk 4: Compilation and Testing
 
-### Task 4.1: Compile and test
+### Task 4.1: Compile OpenMX
 
 - [ ] **Step 1: Compile**
 
 ```bash
-ssh cpu.tj.th-3k.dkvpn "cd /thfs4/home/xuyong/software/openmx/openmx3.9_modify_output/source && make clean && make openmx 2>&1 | tail -20"
+ssh cpu.tj.th-3k.dkvpn "cd /thfs4/home/xuyong/software/openmx/openmx3.9_modify_output/source && make clean && make openmx 2>&1 | tail -30"
 ```
 
-- [ ] **Step 2: Create test input with `Hamiltonian.Components.Output on`**
+- [ ] **Step 2: Verify compilation success**
 
-- [ ] **Step 3: Run test and verify H0/HNL/HVNA output**
+Check for errors in output.
 
-- [ ] **Step 4: Test read_scfout reads components correctly**
+---
+
+### Task 4.2: Test backward compatibility
+
+- [ ] **Step 1: Run OpenMX WITHOUT new parameter**
+
+Create test input without `Hamiltonian.Components.Output`:
+```bash
+ssh cpu.tj.th-3k.dkvpn "cd /path/to/test && /thfs4/home/xuyong/software/openmx/openmx3.9_modify_output/source/openmx test.dat"
+```
+
+Verify `.scfout` is identical to original.
+
+- [ ] **Step 2: Run OpenMX WITH new parameter**
+
+Add to input file:
+```
+Hamiltonian.Components.Output    on
+```
+
+Run and verify output contains H0/HNL/HVNA.
+
+- [ ] **Step 3: Test Julia script**
+
+```bash
+julia /thfs4/home/xuyong/script/openmx_get_data_ext.jl test.scfout
+```
+
+Verify H0.h5, HNL.h5, HVNA.h5 are created.
+
+- [ ] **Step 4: Test old format compatibility**
+
+Run `openmx_get_data_ext.jl` on an old `.scfout` file (without H0/HNL/HVNA).
+Verify it detects missing data and continues normally.
 
 ---
 
 ## Summary
 
-| File | Lines Added |
-|------|-------------|
-| openmx_common.h | +1 |
-| Input_std.c | +1 |
-| SCF2File.c | +~120 |
-| read_scfout.h | +4 |
-| read_scfout.c | +~40 |
+### Files Modified
 
-**No new files, no new dependencies.**
+| File | Lines Changed | Purpose |
+|------|---------------|---------|
+| `openmx_common.h` | +1 | Add control variable |
+| `Input_std.c` | +2 | Add input parameter |
+| `SCF2File.c` | +~150 | Add H0/HNL/HVNA output |
+
+### Files Created
+
+| File | Purpose |
+|------|---------|
+| `openmx_get_data_ext.jl` | Extended Julia script for reading new components |
+
+### Files NOT Modified
+
+| File | Reason |
+|------|--------|
+| `read_scfout.h` | Not needed - OpenMX tools don't use H0/HNL/HVNA |
+| `read_scfout.c` | Not needed - custom Julia script handles reading |
 
 ---
 
@@ -486,20 +729,11 @@ ssh cpu.tj.th-3k.dkvpn "cd /thfs4/home/xuyong/software/openmx/openmx3.9_modify_o
 | **HNL** (nonlocal) | `double *****` | `[spin][Mc_AN][h_AN][i][j]` | `0..List_YOUSO[5]-1` | Mc_AN |
 | **HVNA** (VNA) | `double ****` | `[Mc_AN][h_AN][i][j]` | ❌ No spin | Mc_AN |
 
-### Critical Bugs Fixed
+### Critical Details
 
-1. **HNL spin loop bug**: Changed `spin<=SpinP_switch` to `spin<List_YOUSO[5]`
-   - SpinP_switch=3 means `spin<=3` (4 iterations), but HNL has only 3 elements!
-   - H[3] exists but HNL[3] does not → array out-of-bounds
-
-2. **Variable declaration bug**: Changed `static` to `extern`
-   - `static` in header creates separate copies per .c file
-   - `extern` + definition in Input_std.c ensures single global variable
-
-3. **H0 clarification**: First dimension is component type, not spin
-   - H0[0] = main kinetic matrix (used in Hamiltonian)
-   - H0[1,2,3] = spatial derivatives (used in force calculations)
-   - Only H0[0] should be output
+1. **HNL spin loop**: Use `spin < List_YOUSO[5]` (NOT `spin <= SpinP_switch`)
+2. **Cnt_switch handling**: H0 → H0/CntH0, HNL → no contracted version, HVNA → HVNA/CntHVNA2
+3. **Variable declaration**: Follow OpenMX pattern - define directly in `openmx_common.h`
 
 ### HNL Spin Count Reference
 
@@ -509,13 +743,271 @@ ssh cpu.tj.th-3k.dkvpn "cd /thfs4/home/xuyong/software/openmx/openmx3.9_modify_o
 | 1 (collinear) | 2 | HNL[0,1] | H[0,1] |
 | 3 (non-collinear) | 3 | HNL[0,1,2] | H[0,1,2,3] |
 
-### Output Format Matches H (verified)
+### Output Format
 
-All three components (H0, HNL, HVNA) use the same MPI gather-to-host pattern as H:
-- Loop: `for(Gc_AN=1; Gc_AN<=atomnum; Gc_AN++)`
-- Convert: `Mc_AN = F_G2M[Gc_AN]`
-- Pack: `for(h_AN) for(i) for(j) Tmp_Vec[num++] = Array[...][Mc_AN][h_AN][i][j]`
-- MPI: Owner sends to Host_ID, Host_ID writes to file
+All three components (H0, HNL, HVNA) use the same format as H:
+- Loop order: `Gc_AN → h_AN → i → j`
+- Index conversion: `Mc_AN = F_G2M[Gc_AN]`
+- MPI: gather-to-host pattern
+- Binary: `fwrite` of packed `double` array
+
+---
+
+## Chunk 5: Create openmx_get_data_ext.jl (Detailed Implementation)
+
+### Task 5.1: Copy and extend original script
+
+**Files:**
+- Source: `/thfs4/home/xuyong/script/openmx_get_data.jl`
+- Target: `/thfs4/home/xuyong/script/openmx_get_data_ext.jl`
+
+- [ ] **Step 1: Copy original script**
+```bash
+ssh cpu.tj.th-3k.dkvpn "cp /thfs4/home/xuyong/script/openmx_get_data.jl /thfs4/home/xuyong/script/openmx_get_data_ext.jl"
+```
+
+- [ ] **Step 2: Add new command line argument**
+
+In `parse_commandline()`, add:
+```julia
+@add_arg_table! s begin
+    # ... existing arguments ...
+    "--H_components", "-H"
+        help = "Extract H0/HNL/HVNA components"
+        arg_type = Bool
+        default = false
+end
+```
+
+- [ ] **Step 3: Modify parse_openmx() to return H components**
+
+Add new return values after DM parsing. The key is to read H0/HNL/HVNA at the END of `parse_openmx()` function, just before `close(f)`.
+
+**Critical: Binary reading must match SCF2File.c output order**
+
+```
+SCF2File.c output order:
+  for Gc_AN = 1 to atomnum:
+    for h_AN = 0 to FNAN[Gc_AN]:
+      for i = 0 to TNO1-1:
+        for j = 0 to TNO2-1:
+          write H0[0][Mc_AN][h_AN][i][j]  (single component)
+  
+  for spin = 0 to List_YOUSO[5]-1:
+    for Gc_AN = 1 to atomnum:
+      for h_AN = 0 to FNAN[Gc_AN]:
+        for i = 0 to TNO1-1:
+          for j = 0 to TNO2-1:
+            write HNL[spin][Mc_AN][h_AN][i][j]
+  
+  for Gc_AN = 1 to atomnum:
+    for h_AN = 0 to FNAN[Gc_AN]:
+      for i = 0 to TNO1-1:
+        for j = 0 to TNO2-1:
+          write HVNA[Mc_AN][h_AN][i][j]  (no spin)
+```
+
+**Julia reading order (1-indexed):**
+```julia
+# After all existing reads in parse_openmx()
+
+# Calculate total size
+total_size = 0
+for ct_AN in 1:atomnum
+    TNO1 = Total_NumOrbs[ct_AN]
+    for h_AN in 1:FNAN[ct_AN]  # Julia 1-indexed
+        Gh_AN = natn[ct_AN][h_AN]
+        TNO2 = Total_NumOrbs[Gh_AN]
+        total_size += TNO1 * TNO2
+    end
+end
+
+# Try to read H0 (component 0 only, spin-independent)
+H0_raw = Vector{Float64}(undef, total_size)
+n_read = readbytes!(f, reinterpret(UInt8, H0_raw), total_size * 8)
+n_read = div(n_read, 8)  # Convert bytes to Float64 count
+
+if n_read == total_size
+    # Success - new format with H components
+    H_components_available = true
+    
+    # Read HNL (multiple spin components)
+    num_HNL_spin = SpinP_switch == 0 ? 1 : (SpinP_switch == 1 ? 2 : 3)
+    HNL_raw = Vector{Float64}(undef, total_size * num_HNL_spin)
+    read!(f, HNL_raw)
+    
+    # Read HVNA (spin-independent)
+    HVNA_raw = Vector{Float64}(undef, total_size)
+    read!(f, HVNA_raw)
+    
+    println("H0/HNL/HVNA read successfully")
+else
+    # Old format - no H components
+    H_components_available = false
+    H0_raw = nothing
+    HNL_raw = nothing
+    HVNA_raw = nothing
+    println("No H0/HNL/HVNA found (old format or not enabled)")
+end
+```
+
+- [ ] **Step 4: Convert raw data to dict format**
+
+Add helper function to convert raw arrays to the same dict format as `hamiltonians`:
+
+```julia
+function raw_to_H_dict(raw_data, atomnum, FNAN, natn, ncn, Total_NumOrbs, atv_ijk)
+    H_dict = Dict{Vector{Int64}, Matrix{Float64}}()
+    offset = 0
+    
+    for ct_AN in 1:atomnum
+        TNO1 = Total_NumOrbs[ct_AN]
+        for h_AN in 1:FNAN[ct_AN]
+            Gh_AN = natn[ct_AN][h_AN]
+            TNO2 = Total_NumOrbs[Gh_AN]
+            block_size = TNO1 * TNO2
+            
+            # Get lattice vector R
+            nc_idx = ncn[ct_AN][h_AN]
+            R = atv_ijk[:, nc_idx]
+            
+            # Key: [Rx, Ry, Rz, site_i, site_j]
+            key = vcat(R, [ct_AN, Gh_AN])
+            
+            # Extract block and reshape (note: Julia is column-major)
+            block = reshape(raw_data[offset+1:offset+block_size], TNO2, TNO1)
+            H_dict[key] = block
+            
+            offset += block_size
+        end
+    end
+    
+    return H_dict
+end
+```
+
+- [ ] **Step 5: Save to HDF5 files**
+
+Add output functions:
+
+```julia
+function save_H0(H0_dict, output_dir)
+    h5open(joinpath(output_dir, "H0.h5"), "w") do f
+        for (key, mat) in H0_dict
+            write(f, string(key), mat)
+        end
+    end
+    println("Saved H0.h5")
+end
+
+function save_HNL(HNL_dict, output_dir, num_HNL_spin)
+    h5open(joinpath(output_dir, "HNL.h5"), "w") do f
+        for (key, blocks) in HNL_dict
+            for spin in 1:num_HNL_spin
+                # Key format: [Rx, Ry, Rz, site_i, site_j, spin]
+                spin_key = vcat(key, [spin])
+                write(f, string(spin_key), blocks[spin])
+            end
+        end
+    end
+    println("Saved HNL.h5 ($num_HNL_spin spin components)")
+end
+
+function save_HVNA(HVNA_dict, output_dir)
+    h5open(joinpath(output_dir, "HVNA.h5"), "w") do f
+        for (key, mat) in HVNA_dict
+            write(f, string(key), mat)
+        end
+    end
+    println("Saved HVNA.h5")
+end
+```
+
+---
+
+### Task 5.2: File Structure Summary
+
+**Modified parse_openmx() return signature:**
+```julia
+# Original:
+return element, atomnum, SpinP_switch, atv, atv_ijk, Total_NumOrbs, 
+       FNAN, natn, ncn, tv, Hk, iHk, OLP, OLP_r, orbital_types, 
+       fermi_level, atom_pos, DM
+
+# Extended:
+return element, atomnum, SpinP_switch, atv, atv_ijk, Total_NumOrbs, 
+       FNAN, natn, ncn, tv, Hk, iHk, OLP, OLP_r, orbital_types, 
+       fermi_level, atom_pos, DM,
+       H0_raw, HNL_raw, HVNA_raw, H_components_available, num_HNL_spin
+```
+
+**Output files when H_components=true:**
+| File | Content | Key Format |
+|------|---------|------------|
+| `H0.h5` | H0 matrices | `[Rx, Ry, Rz, site_i, site_j]` |
+| `HNL.h5` | HNL matrices | `[Rx, Ry, Rz, site_i, site_j, spin]` |
+| `HVNA.h5` | HVNA matrices | `[Rx, Ry, Rz, site_i, site_j]` |
+
+---
+
+### Task 5.3: Test the script
+
+- [ ] **Step 1: Test with old format scfout**
+```bash
+julia /thfs4/home/xuyong/script/openmx_get_data_ext.jl old_format.scfout
+# Should output: "No H0/HNL/HVNA found (old format or not enabled)"
+```
+
+- [ ] **Step 2: Test with new format scfout**
+```bash
+julia /thfs4/home/xuyong/script/openmx_get_data_ext.jl new_format.scfout
+# Should output: "H0/HNL/HVNA read successfully"
+# Should create: H0.h5, HNL.h5, HVNA.h5
+```
+
+- [ ] **Step 3: Verify data integrity**
+
+Check that H = H0 + HNL + HVNA + SCF_terms:
+```julia
+# In Julia REPL
+using HDF5
+H = h5read("hamiltonians.h5", "[0, 0, 0, 1, 1]")
+H0 = h5read("H0.h5", "[0, 0, 0, 1, 1]")
+HNL = h5read("HNL.h5", "[0, 0, 0, 1, 1, 1]")  # spin=1
+HVNA = h5read("HVNA.h5", "[0, 0, 0, 1, 1]")
+# Verify: H ≈ H0 + HNL + HVNA + (SCF contribution)
+```
+
+---
+
+## Implementation Status
+
+### Completed (2026-03-14)
+
+| Task | Status | Notes |
+|------|--------|-------|
+| openmx_common.h modification | ✅ Done | Line 2632 |
+| Input_std.c modification | ✅ Done | Line 103 |
+| SCF2File.c modification | ✅ Done | Lines 792-985 |
+| OpenMX compilation | ✅ Done | ARM aarch64, 6.2MB |
+| openmx_get_data_ext.jl | ⏳ Pending | Ready for implementation |
+
+### Compilation Environment
+
+```bash
+source /etc/profile
+module load GCC/9.4.0
+module load fftw/3.3.10-gcc9.4.0-mpich4.1.2
+module load scalapack/2.2.0-gcc9.4.0-mpich4.1.2
+module load openblas/0.3.28-gcc9.4.0
+module load sse2neon/1.8.0
+```
+
+### Binary Location
+
+```
+/thfs4/home/xuyong/software/openmx/openmx3.9_modify_output/source/openmx
+```
 
 ---
 

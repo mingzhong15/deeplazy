@@ -13,7 +13,7 @@ from dlazy.scheduler.base import (
     Scheduler,
     SchedulerError,
 )
-from dlazy.executor.base import TaskStatus, TaskResult, ExecutorContext, Executor
+from dlazy.execution.base import TaskStatus, TaskResult, ExecutorContext, Executor
 
 
 # ============================================================================

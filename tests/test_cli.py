@@ -14,7 +14,7 @@ def test_version():
         text=True,
     )
     assert result.returncode == 0
-    assert "2.9.8" in result.stdout
+    assert "3.0.0" in result.stdout
     print("✓ test_version passed")
 
 
@@ -57,7 +57,7 @@ def test_import():
     """测试导入"""
     from dlazy import __version__, WorkflowExecutor
 
-    assert __version__ == "2.10.0"
+    assert __version__ == "3.0.0"
     assert WorkflowExecutor is not None
     print("✓ test_import passed")
 

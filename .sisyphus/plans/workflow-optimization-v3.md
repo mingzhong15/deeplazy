@@ -189,9 +189,9 @@ Wave FINAL (Verification):
 > Implementation + Test = ONE Task.
 > EVERY task MUST have: Recommended Agent Profile + Parallelization + QA Scenarios.
 
-### Wave 1: Foundation (Tests + Infrastructure)
+### Wave 1: Foundation (Tests + Infrastructure) ✅ COMPLETED
 
-- [ ] 1. **Test Infrastructure Setup**
+- [x] 1. **Test Infrastructure Setup** ✅
 
   **What to do**:
   - Create `tests/conftest.py` with shared fixtures
@@ -237,7 +237,7 @@ Wave FINAL (Verification):
   - Message: `test: add test infrastructure setup`
   - Files: `tests/conftest.py`, `tests/fixtures/.gitkeep`, `pyproject.toml`
 
-- [ ] 2. **Test Fixtures (HDF5 Samples, OpenMX Outputs)**
+- [x] 2. **Test Fixtures (HDF5 Samples, OpenMX Outputs)** ✅
 
   **What to do**:
   - Create sample HDF5 files in `tests/fixtures/`
@@ -287,7 +287,7 @@ Wave FINAL (Verification):
   - Message: `test: add HDF5 and OpenMX test fixtures`
   - Files: `tests/fixtures/*.h5`, `tests/fixtures/*.out`, `tests/conftest.py`
 
-- [ ] 3. **Base Classes + Interfaces**
+- [x] 3. **Base Classes + Interfaces** ✅
 
   **What to do**:
   - Create `dlazy/core/validator/base.py`:
@@ -340,7 +340,7 @@ Wave FINAL (Verification):
   - Message: `feat: add base classes for validator, recovery, scheduler, executor`
   - Files: `dlazy/core/validator/base.py`, `dlazy/core/recovery/base.py`, `dlazy/scheduler/base.py`, `dlazy/executor/base.py`, `tests/test_base_classes.py`
 
-- [ ] 4. **xxh64 Checksum Utility**
+- [x] 4. **xxh64 Checksum Utility** ✅
 
   **What to do**:
   - Add `xxhash` to dependencies in `pyproject.toml`
@@ -387,7 +387,7 @@ Wave FINAL (Verification):
   - Message: `feat: add xxh64 checksum utility`
   - Files: `dlazy/core/recovery/checksum.py`, `tests/test_checksum.py`, `pyproject.toml`
 
-- [ ] 5. **Rich Progress Integration**
+- [x] 5. **Rich Progress Integration** ✅
 
   **What to do**:
   - Add `rich` to dependencies in `pyproject.toml`
@@ -437,9 +437,9 @@ Wave FINAL (Verification):
 
 ---
 
-### Wave 2: Core Modules (Validator + Recovery + State)
+### Wave 2: Core Modules (Validator + Recovery + State) ✅ COMPLETED
 
-- [ ] 6. **Validator Base + Registry**
+- [x] 6. **Validator Base + Registry** ✅
 
   **What to do**:
   - Create `dlazy/core/validator/__init__.py` with exports
@@ -498,7 +498,7 @@ print('test' in [v.validator_type for v in r.get_all()])
   - Message: `feat(validator): add validator registry`
   - Files: `dlazy/core/validator/__init__.py`, `dlazy/core/validator/registry.py`, `tests/test_validator_registry.py`
 
-- [ ] 7. **SCF Convergence Validator**
+- [x] 7. **SCF Convergence Validator** ✅
 
   **What to do**:
   - Create `dlazy/core/validator/scf_convergence.py`:
@@ -564,7 +564,7 @@ print(f'is_valid={result.is_valid}, errors={result.errors}')
   - Message: `feat(validator): add SCF convergence validator`
   - Files: `dlazy/core/validator/scf_convergence.py`, `tests/test_scf_validator.py`
 
-- [ ] 8. **HDF5 Integrity Validator**
+- [x] 8. **HDF5 Integrity Validator** ✅
 
   **What to do**:
   - Create `dlazy/core/validator/hdf5_integrity.py`:
@@ -645,7 +645,7 @@ print(f'has_nan={\"NaN detected\" in str(result.errors)}')
   - Message: `feat(validator): add HDF5 integrity validator`
   - Files: `dlazy/core/validator/hdf5_integrity.py`, `tests/test_hdf5_validator.py`
 
-- [ ] 9. **Recovery Base + Strategies**
+- [x] 9. **Recovery Base + Strategies** ✅
 
   **What to do**:
   - Create `dlazy/core/recovery/__init__.py` with exports
@@ -716,7 +716,7 @@ print(f'action={s.recover(ctx)}')
   - Message: `feat(recovery): add recovery strategies`
   - Files: `dlazy/core/recovery/__init__.py`, `dlazy/core/recovery/strategies.py`, `tests/test_recovery_strategies.py`
 
-- [ ] 10. **State Module (task_state.py)**
+- [x] 10. **State Module (task_state.py)** ✅
 
   **What to do**:
   - Create `dlazy/state/__init__.py` with exports
@@ -789,7 +789,7 @@ except ValueError as e:
   - Message: `feat(state): add task state module`
   - Files: `dlazy/state/__init__.py`, `dlazy/state/task_state.py`, `tests/test_task_state.py`
 
-- [ ] 11. **Checkpoint Manager**
+- [x] 11. **Checkpoint Manager** ✅
 
   **What to do**:
   - Create `dlazy/state/checkpoint.py`:
@@ -855,7 +855,7 @@ with tempfile.TemporaryDirectory() as tmpdir:
   - Message: `feat(state): add checkpoint manager`
   - Files: `dlazy/state/checkpoint.py`, `tests/test_checkpoint.py`
 
-- [ ] 12. **State Serializer**
+- [x] 12. **State Serializer** ✅
 
   **What to do**:
   - Create `dlazy/state/serializer.py`:
@@ -923,9 +923,9 @@ with tempfile.TemporaryDirectory() as tmpdir:
 
 ---
 
-### Wave 3: Scheduler + Executor
+### Wave 3: Scheduler + Executor ✅ COMPLETED
 
-- [ ] 13. **Scheduler Base + Interfaces**
+- [x] 13. **Scheduler Base + Interfaces** ✅
 
   **What to do**:
   - Create `dlazy/scheduler/__init__.py` with exports
@@ -962,7 +962,7 @@ with tempfile.TemporaryDirectory() as tmpdir:
   - Message: `feat(scheduler): add scheduler base interfaces`
   - Files: `dlazy/scheduler/__init__.py`, `dlazy/scheduler/base.py`, `tests/test_scheduler_base.py`
 
-- [ ] 14. **SLURM Scheduler**
+- [x] 14. **SLURM Scheduler** ✅
 
   **What to do**:
   - Create `dlazy/scheduler/slurm.py`:
@@ -1024,7 +1024,7 @@ with patch('subprocess.run') as mock_run:
   - Message: `feat(scheduler): add SLURM scheduler`
   - Files: `dlazy/scheduler/slurm.py`, `tests/test_slurm_scheduler.py`
 
-- [ ] 15. **Job Manager**
+- [x] 15. **Job Manager** ✅
 
   **What to do**:
   - Create `dlazy/scheduler/job_manager.py`:
@@ -1065,7 +1065,7 @@ with patch('subprocess.run') as mock_run:
   - Message: `feat(scheduler): add job manager`
   - Files: `dlazy/scheduler/job_manager.py`, `tests/test_job_manager.py`
 
-- [ ] 16. **Resource Monitor**
+- [x] 16. **Resource Monitor** ✅
 
   **What to do**:
   - Create `dlazy/scheduler/resource_monitor.py`:
@@ -1103,7 +1103,7 @@ with patch('subprocess.run') as mock_run:
   - Message: `feat(scheduler): add resource monitor`
   - Files: `dlazy/scheduler/resource_monitor.py`, `tests/test_resource_monitor.py`
 
-- [ ] 17. **Executor Base**
+- [x] 17. **Executor Base** ✅
 
   **What to do**:
   - Create `dlazy/executor/__init__.py` with exports
@@ -1143,7 +1143,7 @@ with patch('subprocess.run') as mock_run:
   - Message: `feat(executor): add executor base`
   - Files: `dlazy/executor/__init__.py`, `dlazy/executor/base.py`, `tests/test_executor_base.py`
 
-- [ ] 18. **OLP Executor**
+- [x] 18. **OLP Executor** ✅
 
   **What to do**:
   - Create `dlazy/executor/olp.py`:
@@ -1180,7 +1180,7 @@ with patch('subprocess.run') as mock_run:
   - Message: `feat(executor): add OLP executor`
   - Files: `dlazy/executor/olp.py`, `tests/test_olp_executor.py`
 
-- [ ] 19. **Infer Executor**
+- [x] 19. **Infer Executor** ✅
 
   **What to do**:
   - Create `dlazy/executor/infer.py`:
@@ -1217,7 +1217,7 @@ with patch('subprocess.run') as mock_run:
   - Message: `feat(executor): add Infer executor`
   - Files: `dlazy/executor/infer.py`, `tests/test_infer_executor.py`
 
-- [ ] 20. **Calc Executor**
+- [x] 20. **Calc Executor** ✅
 
   **What to do**:
   - Create `dlazy/executor/calc.py`:
@@ -1257,9 +1257,9 @@ with patch('subprocess.run') as mock_run:
 
 ---
 
-### Wave 4: Integration + CLI
+### Wave 4: Integration + CLI ✅ COMPLETED (except cluster validation)
 
-- [ ] 21. **Batch Scheduler Refactor**
+- [x] 21. **Batch Scheduler Refactor** ✅
 
   **What to do**:
   - Refactor `dlazy/batch_workflow.py:BatchScheduler`:
@@ -1301,7 +1301,7 @@ with patch('subprocess.run') as mock_run:
   - Message: `refactor: integrate new modules into BatchScheduler`
   - Files: `dlazy/batch_workflow.py`, `tests/test_batch_scheduler_v3.py`
 
-- [ ] 22. **CLI Refactor with Rich**
+- [x] 22. **CLI Refactor with Rich** ✅
 
   **What to do**:
   - Refactor `dlazy/cli.py`:
@@ -1350,7 +1350,7 @@ with patch('subprocess.run') as mock_run:
   - Message: `feat(cli): add Rich progress and colored output`
   - Files: `dlazy/cli.py`, `tests/test_cli_v3.py`
 
-- [ ] 23. **Integration Tests**
+- [x] 23. **Integration Tests** ✅
 
   **What to do**:
   - Create `tests/integration/` directory

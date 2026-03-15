@@ -237,9 +237,13 @@ class TestExecutorIntegration:
             infer_command="echo",
             transform_reverse_command="echo",
         )
-        task = InferTask(path="/tmp/test", scf_path="/tmp/scf")
 
         with tempfile.TemporaryDirectory() as d:
+            scf_dir = Path(d) / "scf"
+            scf_dir.mkdir()
+            (scf_dir / "overlaps.h5").touch()
+            task = InferTask(path="/tmp/test", scf_path=str(scf_dir))
+
             ctx = ExecutorContext(config={}, workdir=Path(d), stage="infer")
             workdir = executor.prepare(task, ctx)
 

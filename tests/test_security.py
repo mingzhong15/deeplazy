@@ -6,15 +6,13 @@ from pathlib import Path
 import tempfile
 import os
 
-from dlazy.security import (
+from dlazy.utils.security import (
     validate_path,
     sanitize_shell_arg,
     safe_format_command,
     run_command_safe,
     sanitize_filename,
     SecurityError,
-)
-from dlazy.config_validator import (
     validate_command_template,
     validate_global_config,
 )

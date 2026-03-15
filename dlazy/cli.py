@@ -7,9 +7,16 @@ import argparse
 import sys
 from pathlib import Path
 
+from rich.console import Console
+from rich.table import Table
+from rich.progress import Progress, BarColumn, TextColumn, TimeElapsedColumn
+from rich.panel import Panel
+
 from . import __version__
 from .utils.security import validate_path
 from .utils import get_existing_batch_count, get_next_backup_index
+
+console = Console()
 
 
 def cmd_run(args):
@@ -516,25 +523,27 @@ def cmd_batch_status(args):
     retrying_tasks = total_errors - total_permanent_errors
     success_tasks = total_calc_done
 
-    print()
-    print("━" * 60)
-    print("                        总体进度")
-    print("━" * 60)
-    print(f"原始任务: {total_original_tasks}")
-    relay_str = f"处理次数: {total_processed} (原始 {total_original_tasks}"
+    console.print()
+    console.rule("[bold blue]总体进度", style="blue")
+    console.print(f"原始任务: [cyan]{total_original_tasks}[/cyan]")
+    relay_str = f"处理次数: [cyan]{total_processed}[/cyan] (原始 {total_original_tasks}"
     if total_relay_tasks > 0:
-        relay_str += f" + 中继 {total_relay_tasks})"
+        relay_str += f" + 中继 [yellow]{total_relay_tasks}[/yellow])"
     else:
         relay_str += ")"
-    print(relay_str)
+    console.print(relay_str)
     if total_processed > 0:
-        print(
-            f"成功: {success_tasks} | 重试中: {retrying_tasks} | 永久失败: {total_permanent_errors}"
+        console.print(
+            f"成功: [green]{success_tasks}[/green] | 重试中: [yellow]{retrying_tasks}[/yellow] | 永久失败: [red]{total_permanent_errors}[/red]"
         )
-    print()
-    print("┌" + "─" * 62 + "┐")
-    print("│ 阶段  │ 完成  │ 成功  │ 失败  │ 进度                           │")
-    print("├" + "─" * 62 + "┤")
+    console.print()
+
+    stage_table = Table(title="阶段进度", show_header=True, header_style="bold magenta")
+    stage_table.add_column("阶段", style="cyan", width=8)
+    stage_table.add_column("完成", justify="right", width=8)
+    stage_table.add_column("成功", justify="right", width=8)
+    stage_table.add_column("失败", justify="right", width=8)
+    stage_table.add_column("进度", width=30)
 
     olp_success = (
         total_olp_done - total_olp_errors
@@ -556,24 +565,53 @@ def cmd_batch_status(args):
         total_original_tasks if total_original_tasks > 0 else total_processed
     )
 
-    print(
-        f"│ olp   │ {total_olp_done:5d} │ {olp_success:5d} │ {total_olp_errors:5d} │ {progress_bar(total_olp_done, total_for_progress)} │"
-    )
-    print(
-        f"│ infer │ {total_infer_done:5d} │ {infer_success:5d} │ {total_infer_errors:5d} │ {progress_bar(total_infer_done, total_for_progress)} │"
-    )
-    print(
-        f"│ calc  │ {total_calc_done:5d} │ {calc_success:5d} │ {total_calc_errors:5d} │ {progress_bar(total_calc_done, total_for_progress)} │"
-    )
-    print("└" + "─" * 62 + "┘")
+    def rich_progress_bar(done, total, width=20):
+        if total == 0:
+            return "[dim]━━━━━━━━━━━━━━━━━━━━[/dim] 0%"
+        pct = done / total
+        filled = int(width * pct)
+        bar = "█" * filled + "░" * (width - filled)
+        return f"[green]{bar}[/green] {pct * 100:.1f}%"
 
-    print()
-    print("━" * 70)
-    print("                          各批次详情")
-    print("━" * 70)
-    header = f"{'批次':<12} {'任务(原+中继)':>14}  {'OLP':>6}  {'Infer':>6}  {'Calc':>6}  {'状态':<6}"
-    print(header)
-    print("─" * 70)
+    stage_table.add_row(
+        "OLP",
+        str(total_olp_done),
+        f"[green]{olp_success}[/green]",
+        f"[red]{total_olp_errors}[/red]"
+        if total_olp_errors > 0
+        else str(total_olp_errors),
+        rich_progress_bar(total_olp_done, total_for_progress),
+    )
+    stage_table.add_row(
+        "Infer",
+        str(total_infer_done),
+        f"[green]{infer_success}[/green]",
+        f"[red]{total_infer_errors}[/red]"
+        if total_infer_errors > 0
+        else str(total_infer_errors),
+        rich_progress_bar(total_infer_done, total_for_progress),
+    )
+    stage_table.add_row(
+        "Calc",
+        str(total_calc_done),
+        f"[green]{calc_success}[/green]",
+        f"[red]{total_calc_errors}[/red]"
+        if total_calc_errors > 0
+        else str(total_calc_errors),
+        rich_progress_bar(total_calc_done, total_for_progress),
+    )
+    console.print(stage_table)
+
+    console.print()
+    console.rule("[bold blue]各批次详情", style="blue")
+
+    batch_table = Table(show_header=True, header_style="bold magenta")
+    batch_table.add_column("批次", style="cyan", width=14)
+    batch_table.add_column("任务(原+中继)", justify="right", width=14)
+    batch_table.add_column("OLP", justify="right", width=6)
+    batch_table.add_column("Infer", justify="right", width=6)
+    batch_table.add_column("Calc", justify="right", width=6)
+    batch_table.add_column("状态", width=10)
 
     for batch_idx, batch_status in enumerate(batch_statuses):
         batch_name = f"batch.{batch_idx:05d}"
@@ -592,72 +630,45 @@ def cmd_batch_status(args):
             batch_relay = 0
 
         if status == "completed":
-            status_icon = "✓"
             if errors > 0:
-                status_display = "有错误"
+                status_display = "[yellow]有错误[/yellow]"
             else:
-                status_display = "完成"
+                status_display = "[green]完成[/green]"
         elif status == "running":
-            status_icon = "○"
-            status_display = "进行中"
+            status_display = "[blue]进行中[/blue]"
         else:
-            status_icon = "-"
-            status_display = "待处理"
-
-        def format_stage_count(done, total, icon):
-            if total == 0:
-                return f"{done:>4}{icon}"
-            return f"{done:>4}{icon}"
-
-        olp_str = format_stage_count(
-            olp,
-            total,
-            status_icon
-            if status == "completed"
-            else ("○" if status == "running" else "-"),
-        )
-        infer_str = format_stage_count(
-            infer,
-            total,
-            status_icon
-            if status == "completed"
-            else ("○" if status == "running" else "-"),
-        )
-        calc_str = format_stage_count(
-            calc,
-            total,
-            status_icon
-            if status == "completed"
-            else ("○" if status == "running" else "-"),
-        )
+            status_display = "[dim]待处理[/dim]"
 
         task_str = (
-            f"{total} ({batch_original}+{batch_relay})"
+            f"{total} ([cyan]{batch_original}[/cyan]+[yellow]{batch_relay}[/yellow])"
             if batch_relay > 0
             else str(total)
         )
-        print(
-            f"{batch_name:<12} {task_str:>14}  {olp_str:>6}  {infer_str:>6}  {calc_str:>6}  {status_display:<6}"
-        )
 
-    print()
+        batch_table.add_row(
+            batch_name,
+            task_str,
+            str(olp),
+            str(infer),
+            str(calc),
+            status_display,
+        )
+    console.print(batch_table)
+
+    console.print()
     current_job_id = state.get("current_job_id")
     if current_job_id:
-        print(
-            f"当前作业: {current_job_id} | 阶段: {current_stage} | 最后更新: {state.get('last_update', '-')}"
+        console.print(
+            f"当前作业: [cyan]{current_job_id}[/cyan] | 阶段: [yellow]{current_stage}[/yellow] | 最后更新: {state.get('last_update', '-')}"
         )
     elif state.get("last_update"):
-        print(f"最后更新: {state.get('last_update')}")
-    else:
-        print()
+        console.print(f"最后更新: {state.get('last_update')}")
 
     if total_permanent_errors > 0:
-        print()
-        print(f"⚠ 永久失败任务: {total_permanent_errors} 个 (重试3次后仍失败)")
-        for i, err_path in enumerate(permanent_errors[:5]):
-            print(f"  - {err_path}")
-        if total_permanent_errors > 5:
-            print(f"  ... (共 {total_permanent_errors} 个)")
+        console.print()
+        console.print(
+            Panel(f"[red]永久失败任务 ({total_permanent_errors})[/red]", title="警告")
+        )
 
     monitor_file = workdir / MONITOR_STATE_FILE
     if monitor_file.exists():

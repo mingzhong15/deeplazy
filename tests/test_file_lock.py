@@ -8,13 +8,13 @@ from pathlib import Path
 
 import pytest
 
-from dlazy.file_lock import (
+from dlazy.utils.concurrency import (
     FileLock,
     SharedFileLock,
     atomic_append_jsonl,
     atomic_write_json,
+    PIDLock,
 )
-from dlazy.pid_lock import PIDLock
 
 
 class TestFileLock:
