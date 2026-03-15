@@ -305,6 +305,81 @@ See `examples/demo-workflow/global_config.yaml` for an example configuration fil
 
 ## Changelog
 
+### v3.0.0 (2026-03-15)
+
+**Major Feature: Workflow Optimization System**
+
+A comprehensive upgrade to the workflow system with enhanced scheduling, validation, and recovery capabilities. This release introduces a modular architecture for robust task execution on HPC clusters.
+
+**New Module Structure:**
+```
+dlazy/
+├── core/
+│   ├── validator/           # Validation framework
+│   │   ├── base.py          # Validator ABC, ValidationResult
+│   │   ├── registry.py      # ValidatorRegistry
+│   │   ├── scf_convergence.py   # SCFConvergenceValidator
+│   │   └── hdf5_integrity.py    # HDF5IntegrityValidator
+│   └── recovery/
+│       ├── base.py          # RecoveryStrategy ABC
+│       ├── checksum.py      # xxh64 checksum utilities
+│       └── strategies.py    # RetryStrategy, SkipStrategy, AbortStrategy
+├── scheduler/
+│   ├── base.py              # Scheduler ABC, JobStatus, SubmitConfig
+│   ├── slurm.py             # SlurmScheduler implementation
+│   └── job_manager.py       # JobManager for lifecycle management
+├── execution/
+│   ├── base.py              # Executor ABC, TaskResult, ExecutorContext
+│   ├── olp_executor.py      # OlpExecutor for OpenMX overlap
+│   ├── infer_executor.py    # InferExecutor for DeepH inference
+│   ├── calc_executor.py     # CalcExecutor for OpenMX SCF
+│   └── factory.py           # create_executor() factory
+└── state/
+    ├── task_state.py        # TaskState, TaskStatus, TaskStateStore
+    ├── checkpoint.py        # Checkpoint, CheckpointManager
+    └── serializer.py        # StateSerializer for JSON persistence
+```
+
+**Key Features:**
+
+1. **Scheduler System**
+   - `SlurmScheduler`: Submit/check/cancel jobs with automatic retry logic
+   - `JobManager`: Tracks job lifecycle, updates `TaskStateStore`, handles state transitions
+
+2. **Validation Framework**
+   - `SCFConvergenceValidator`: Checks OpenMX SCF convergence
+   - `HDF5IntegrityValidator`: Validates HDF5 files (NaN/Inf/empty checks)
+   - `ValidatorRegistry`: Extensible validator registration system
+
+3. **Recovery Strategies**
+   - `RetryStrategy`: For transient errors (node_error, timeout)
+   - `SkipStrategy`: For permanent errors (config_error, security_error)
+   - `AbortStrategy`: For critical errors (resource_error)
+   - `RecoveryStrategyChain`: Ordered chain execution
+
+4. **State Persistence**
+   - `CheckpointManager`: Saves outputs with xxh64 checksums
+   - `StateSerializer`: JSON serialization for TaskStateStore
+   - `TaskStateStore`: State machine with transition validation
+
+5. **Task Executors**
+   - `OlpExecutor`: OpenMX overlap calculation
+   - `InferExecutor`: transform → inference → transform_reverse pipeline
+   - `CalcExecutor`: OpenMX SCF with convergence validation
+   - `ExecutorFactory`: Stage-based executor creation
+
+**Integration:**
+- `WorkflowExecutor`: Added `use_new_executor` parameter (default False for backward compatibility)
+- `BatchScheduler`: Automatically uses SlurmScheduler + JobManager + CheckpointManager
+
+**Dependencies Added:**
+- `rich>=13.0.0`: Progress bars and rich output
+- `xxhash>=3.0.0`: Fast checksum computation
+
+**Testing:**
+- Comprehensive test suite with pytest
+- TDD development approach throughout
+
 ### v2.14.2 (2026-03-14)
 
 **Critical Bug Fixes:**
