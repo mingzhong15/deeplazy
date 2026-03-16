@@ -305,6 +305,20 @@ See `examples/demo-workflow/global_config.yaml` for an example configuration fil
 
 ## Changelog
 
+### v3.0.1 (2026-03-16)
+
+**Bug Fix: xxhash Optional Dependency**
+
+- Made `xxhash` import optional with automatic fallback to `hashlib.sha256`
+- Prevents `ModuleNotFoundError` on systems without xxhash installed
+- Maintains compatibility with environments that have xxhash (faster checksums)
+- Critical for HPC clusters with restricted package installation
+
+**Changes:**
+- `dlazy/core/recovery/checksum.py`: Added try/except import with `XXHASH_AVAILABLE` flag
+- New helper functions `_compute_xxh64()` and `_compute_sha256()` for cleaner code
+- When xxhash unavailable, xxh64 algorithm falls back to sha256 automatically
+
 ### v3.0.0 (2026-03-15)
 
 **Major Feature: Workflow Optimization System**

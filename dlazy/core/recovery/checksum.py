@@ -1,11 +1,35 @@
-"""Checksum utilities using xxh64 algorithm."""
+"""Checksum utilities using xxh64 algorithm (with fallback to hashlib)."""
 
 from __future__ import annotations
 
 from pathlib import Path
 from typing import Dict, Any
+import hashlib
 
-import xxhash
+try:
+    import xxhash
+
+    XXHASH_AVAILABLE = True
+except ImportError:
+    xxhash = None  # type: ignore
+    XXHASH_AVAILABLE = False
+
+
+def _compute_xxh64(file_path: Path) -> str:
+    assert xxhash is not None
+    hasher = xxhash.xxh64()
+    with open(file_path, "rb") as f:
+        for chunk in iter(lambda: f.read(8192), b""):
+            hasher.update(chunk)
+    return hasher.hexdigest()
+
+
+def _compute_sha256(file_path: Path) -> str:
+    hasher = hashlib.sha256()
+    with open(file_path, "rb") as f:
+        for chunk in iter(lambda: f.read(8192), b""):
+            hasher.update(chunk)
+    return hasher.hexdigest()
 
 
 def compute_checksum(file_path: Path, algorithm: str = "xxh64") -> str:
@@ -13,7 +37,7 @@ def compute_checksum(file_path: Path, algorithm: str = "xxh64") -> str:
 
     Args:
         file_path: Path to the file
-        algorithm: Hash algorithm (default: xxh64)
+        algorithm: Hash algorithm (default: xxh64, falls back to sha256 if xxhash unavailable)
 
     Returns:
         Hexadecimal checksum string
@@ -22,21 +46,20 @@ def compute_checksum(file_path: Path, algorithm: str = "xxh64") -> str:
         ValueError: If algorithm is not supported
         FileNotFoundError: If file does not exist
     """
-    if algorithm != "xxh64":
-        raise ValueError(
-            f"Unsupported algorithm: {algorithm}. Only xxh64 is supported."
-        )
-
     file_path = Path(file_path)
     if not file_path.exists():
         raise FileNotFoundError(f"File not found: {file_path}")
 
-    hasher = xxhash.xxh64()
-    with open(file_path, "rb") as f:
-        for chunk in iter(lambda: f.read(8192), b""):
-            hasher.update(chunk)
-
-    return hasher.hexdigest()
+    if algorithm == "xxh64":
+        if XXHASH_AVAILABLE:
+            return _compute_xxh64(file_path)
+        return _compute_sha256(file_path)
+    elif algorithm == "sha256":
+        return _compute_sha256(file_path)
+    else:
+        raise ValueError(
+            f"Unsupported algorithm: {algorithm}. Supported: xxh64, sha256."
+        )
 
 
 def verify_checksum(file_path: Path, expected: str) -> bool:

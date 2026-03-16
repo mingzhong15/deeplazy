@@ -292,20 +292,29 @@ OUTPUT_BASE="/thfs4/home/xuyong/zeng/00.B-comp/sigma-bonding/multi_run/..."
 
 ---
 
-## 决策点 (需要用户确认)
+## 用户决策
 
-1. **路径配置**: 是否需要创建统一的配置文件管理所有路径？
-2. **代码迁移**: 是否将 `sigma-bonding` 路径统一改为 `01.sigma-flow`？
-3. **脚本整合**: 是否整合重复功能的脚本？
-4. **依赖管理**: 是否创建 requirements.txt 和 Project.toml？
-5. **测试范围**: 整理后是否需要全面测试？
+| 问题 | 决定 |
+|------|------|
+| 整理范围 | **最小修复** - 仅修复关键问题 |
+| 硬编码路径 | **保持现状** - 不修改路径结构 |
+| 重复脚本 | **整合为一个** - 合并功能重复的脚本 |
 
 ---
 
-## 下一步行动
+## 待执行工作
 
-待用户确认后，可以：
-1. 创建统一配置文件
-2. 整理重复脚本
-3. 创建依赖声明文件
-4. 生成详细的整理工作计划
+### 任务1: 修复路径不一致问题
+**问题**: 脚本中 `CODE_DIR` 指向 `sigma-bonding/src` 而非实际的 `01.sigma-flow/src`
+**修复**: 将所有 `sigma-bonding` 引用改为 `01.sigma-flow`
+
+### 任务2: 整合重复的Slurm脚本
+**问题**: `sigma_bond_group.slurm` 和 `02.run_calc_sigma.sh` 功能完全相同
+**修复**: 保留 `02.run_calc_sigma.sh`，删除 `sigma_bond_group.slurm`
+
+### 任务3: 整合DFT目录生成脚本
+**问题**: `03.gen_dft_dir.sh` (串行) 和 `04.gen_dft_dir_quick.sh` (并行) 功能相同
+**修复**: 保留并行版本 `04.gen_dft_dir_quick.sh`，将 `03.gen_dft_dir.sh` 标记为废弃或删除
+
+### 任务4: 更新README文档
+**修复**: 更新README说明实际的工作流和正确的路径

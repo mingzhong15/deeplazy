@@ -18,7 +18,7 @@ from .core.exceptions import (
 )
 from .path_resolver import PathResolver, RunPathResolver, BatchPathResolver
 
-__version__ = "3.0.0"
+__version__ = "3.0.1"
 __all__ = [
     "WorkflowExecutor",
     "OLPContext",
