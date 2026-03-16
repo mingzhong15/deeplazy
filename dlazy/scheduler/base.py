@@ -68,10 +68,10 @@ class SubmitConfig:
     """Configuration for job submission."""
 
     job_name: str
-    nodes: int = 1
-    ppn: int = 24
-    time_limit: str = "1:00:00"
-    partition: str = "normal"
+    nodes: int = 0
+    ppn: int = 0
+    time_limit: str = ""
+    partition: str = ""
     qos: str = ""
     memory: str = ""
     output_file: str = "slurm-%j.out"
@@ -82,13 +82,17 @@ class SubmitConfig:
         """Convert to sbatch command line arguments."""
         args = [
             f"--job-name={self.job_name}",
-            f"--nodes={self.nodes}",
-            f"--ntasks-per-node={self.ppn}",
-            f"--time={self.time_limit}",
-            f"--partition={self.partition}",
             f"--output={self.output_file}",
             f"--error={self.error_file}",
         ]
+        if self.nodes > 0:
+            args.append(f"--nodes={self.nodes}")
+        if self.ppn > 0:
+            args.append(f"--ntasks-per-node={self.ppn}")
+        if self.time_limit:
+            args.append(f"--time={self.time_limit}")
+        if self.partition:
+            args.append(f"--partition={self.partition}")
         if self.qos:
             args.append(f"--qos={self.qos}")
         if self.memory:

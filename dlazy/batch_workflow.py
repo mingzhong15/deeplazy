@@ -505,7 +505,15 @@ class BatchScheduler(WorkflowBase):
         """Submit job using new SlurmScheduler."""
         assert self._new_scheduler is not None
         if config is None:
-            config = SubmitConfig(job_name=job_name)
+            config = SubmitConfig(
+                job_name=job_name,
+                partition="",
+                nodes=1,
+                ppn=1,
+                time_limit="",
+                output_file="slurm-%j.out",
+                error_file="slurm-%j.err",
+            )
         return self._new_scheduler.submit(script_path, config)
 
     def _check_slurm_job_state_new(self, job_id: str) -> str:
