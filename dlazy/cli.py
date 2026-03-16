@@ -200,26 +200,14 @@ def cmd_batch(args):
         else config_path.parent
     )
 
-    # 检查已有batch目录，决定处理方式
     existing_count = get_existing_batch_count(workdir)
     batch_mode = args.batch_mode
 
-    if existing_count > 0 and batch_mode == "auto":
-        print(f"\n检测到已有批次: batch.00000 ~ batch.{existing_count - 1:05d}")
-        print("请选择处理方式:")
-        print("  [1] append    - 从 batch.{:05d} 继续添加新批次".format(existing_count))
-        print("  [2] overwrite - 删除所有批次，从 batch.00000 重新开始")
-
-        while True:
-            choice = input("请输入选择 (1/2): ").strip()
-            if choice == "1":
-                batch_mode = "append"
-                break
-            elif choice == "2":
-                batch_mode = "overwrite"
-                break
-            else:
-                print("无效输入，请输入 1 或 2")
+    if batch_mode == "auto":
+        batch_mode = "append"
+        if existing_count > 0:
+            print(f"检测到已有批次: batch.00000 ~ batch.{existing_count - 1:05d}")
+            print(f"自动选择: append - 从 batch.{existing_count:05d} 继续")
 
     if batch_mode == "overwrite" and existing_count > 0:
         print(f"正在删除 {existing_count} 个已有批次...")
@@ -921,7 +909,7 @@ def main():
         "--batch-mode",
         choices=["auto", "append", "overwrite"],
         default="auto",
-        help="批次处理模式: auto(检测到已有批次时提示), append(追加), overwrite(覆盖)",
+        help="批次处理模式: auto(自动追加), append(追加), overwrite(覆盖删除)",
     )
     parser_batch.set_defaults(func=cmd_batch)
 

@@ -211,6 +211,48 @@ class BatchScheduler(WorkflowBase):
 
         return num_batches
 
+    def _init_single_batch(self, batch_index: int) -> int:
+        """Initialize a single batch's task file (lazy creation).
+
+        Args:
+            batch_index: Index of batch to create
+
+        Returns:
+            Number of tasks in this batch (0 if no more tasks)
+        """
+        resolver = self._get_path_resolver(0)
+        todo_file = resolver.get_todo_list_file()
+
+        if not todo_file.exists():
+            return 0
+
+        tasks = list(_read_jsonl(todo_file))
+        if not tasks:
+            return 0
+
+        batch_size = self.ctx.batch_size
+        start = batch_index * batch_size
+
+        if start >= len(tasks):
+            return 0
+
+        end = min(start + batch_size, len(tasks))
+        batch_tasks = tasks[start:end]
+
+        batch_resolver = self._get_path_resolver(batch_index)
+        tasks_file = batch_resolver.get_olp_tasks_file()
+        tasks_file.parent.mkdir(parents=True, exist_ok=True)
+
+        olp_tasks = [OlpTask(path=t["path"]) for t in batch_tasks]
+        write_olp_tasks(tasks_file, olp_tasks)
+
+        self.logger.info(
+            "Created batch %d with %d tasks (lazy creation)",
+            batch_index,
+            len(batch_tasks),
+        )
+        return len(batch_tasks)
+
     def _count_batch_tasks(self, resolver: BatchPathResolver) -> int:
         """Count tasks in current batch."""
         return count_tasks(resolver.get_olp_tasks_file())
@@ -717,15 +759,18 @@ class BatchScheduler(WorkflowBase):
 
         self._write_pid()
 
-        try:
-            if not self.state.get("initialized"):
-                start_batch = self.state.get("start_batch_index", 0)
-                num_batches = self._init_batch_tasks(start_batch_index=start_batch)
-                self.state["initialized"] = True
-                self.state["total_batches"] = num_batches + start_batch
-                self._save_state()
+        resolver = self._get_path_resolver(0)
+        todo_file = resolver.get_todo_list_file()
+        if todo_file.exists():
+            tasks = list(_read_jsonl(todo_file))
+            self.state["total_tasks"] = len(tasks)
+            self.state["estimated_batches"] = math.ceil(
+                len(tasks) / self.ctx.batch_size
+            )
+            self._save_state()
 
-            while self._has_pending_batches():
+        try:
+            while True:
                 if self._check_abort():
                     raise AbortException(
                         self._get_abort_reason() or "Max retries exceeded"
@@ -734,12 +779,19 @@ class BatchScheduler(WorkflowBase):
                 batch_index = self.state["current_batch"]
                 resolver = self._get_path_resolver(batch_index)
 
-                num_tasks = self._count_batch_tasks(resolver)
-                if num_tasks == 0:
-                    self.logger.info("Batch %d empty, skipping", batch_index)
-                    self.state["current_batch"] = batch_index + 1
-                    self._save_state()
-                    continue
+                tasks_file = resolver.get_olp_tasks_file()
+                if not tasks_file.exists():
+                    num_tasks = self._init_single_batch(batch_index)
+                    if num_tasks == 0:
+                        self.logger.info("No more tasks, workflow complete")
+                        break
+                else:
+                    num_tasks = self._count_batch_tasks(resolver)
+                    if num_tasks == 0:
+                        self.logger.info(
+                            "Batch %d empty, workflow complete", batch_index
+                        )
+                        break
 
                 self.logger.info(
                     "Processing batch %d: %d tasks", batch_index, num_tasks
