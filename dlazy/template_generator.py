@@ -10,10 +10,16 @@ from .utils.security import validate_command_template
 
 
 def _format_modules(modules: List[str]) -> str:
-    """Format module load commands."""
+    """Format module load commands with proper initialization."""
     if not modules:
         return ""
-    lines = ["module purge"]
+    lines = [
+        "# Initialize module system",
+        "if [ -f /etc/profile.d/modules.sh ]; then",
+        "    source /etc/profile.d/modules.sh",
+        "fi",
+        "module purge",
+    ]
     for mod in modules:
         lines.append(f"module load {mod}")
     return "\n".join(lines)

@@ -305,6 +305,18 @@ See `examples/demo-workflow/global_config.yaml` for an example configuration fil
 
 ## Changelog
 
+### v3.0.2 (2026-03-16)
+
+**Bug Fix: SLURM Module Initialization**
+
+- Fixed `module: command not found` error in SLURM non-interactive shells
+- Added source of `/etc/profile.d/modules.sh` before module commands
+- Critical for HPC clusters where module system isn't auto-initialized
+
+**Changes:**
+- `dlazy/template_generator.py`: `_format_modules()` now sources modules.sh first
+- Ensures module commands work in all SLURM execution contexts
+
 ### v3.0.1 (2026-03-16)
 
 **Bug Fix: xxhash Optional Dependency**
