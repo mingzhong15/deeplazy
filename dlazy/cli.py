@@ -783,10 +783,18 @@ def cmd_batch_retry_tasks(args):
             atomic_write_json(state_file, state)
             print(f"已重置状态，将从 batch.{existing_count:05d} 开始")
 
+        saved_batch_size = 100
+        if state_file.exists():
+            with open(state_file, "r", encoding="utf-8") as f:
+                saved_state = json.load(f)
+                saved_batch_size = saved_state.get("batch_size", 100)
+
+        actual_batch_size = args.batch_size if args.batch_size else saved_batch_size
+
         ctx_run = BatchContext(
             config_path=config_path,
             workflow_root=workdir,
-            batch_size=args.batch_size if args.batch_size else 100,
+            batch_size=actual_batch_size,
             fresh=False,
         )
         scheduler_run = BatchScheduler(ctx_run)

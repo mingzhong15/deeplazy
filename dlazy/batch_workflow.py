@@ -120,6 +120,7 @@ class BatchScheduler(WorkflowBase):
             "total_batches": 0,
             "start_batch_index": start_batch,
             "original_task_count": original_task_count,
+            "batch_size": self.ctx.batch_size,
         }
         self._save_state(state)
         return state
