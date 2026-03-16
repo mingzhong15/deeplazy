@@ -775,7 +775,8 @@ class BatchScheduler(WorkflowBase):
             self.state["estimated_batches"] = math.ceil(
                 len(tasks) / self.ctx.batch_size
             )
-            self._save_state()
+        self.state["initialized"] = True
+        self._save_state()
 
         try:
             while True:
