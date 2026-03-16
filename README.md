@@ -305,6 +305,19 @@ See `examples/demo-workflow/global_config.yaml` for an example configuration fil
 
 ## Changelog
 
+### v3.0.3 (2026-03-16)
+
+**Bug Fix: Direct Module Initialization for SLURM**
+
+- Source module init script directly instead of relying on profile.d detection
+- Add fallback path `/thfs4/software/modules/5.1.0/init/bash`
+- Add error handling for module load failures
+- Graceful degradation when modules not available
+
+**Changes:**
+- `dlazy/template_generator.py`: Direct source of module init bash script
+- Prevents shell detection failures in SLURM environment
+
 ### v3.0.2 (2026-03-16)
 
 **Bug Fix: SLURM Module Initialization**

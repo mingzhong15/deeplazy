@@ -14,14 +14,18 @@ def _format_modules(modules: List[str]) -> str:
     if not modules:
         return ""
     lines = [
-        "# Initialize module system",
-        "if [ -f /etc/profile.d/modules.sh ]; then",
+        "# Initialize module system (direct source for SLURM compatibility)",
+        "if [ -f /thfs4/software/modules/5.1.0/init/bash ]; then",
+        "    . /thfs4/software/modules/5.1.0/init/bash",
+        "elif [ -f /etc/profile.d/modules.sh ]; then",
         "    source /etc/profile.d/modules.sh",
         "fi",
-        "module purge",
+        "module purge 2>/dev/null || true",
     ]
     for mod in modules:
-        lines.append(f"module load {mod}")
+        lines.append(
+            f"module load {mod} 2>/dev/null || echo 'Warning: module {mod} not loaded'"
+        )
     return "\n".join(lines)
 
 
