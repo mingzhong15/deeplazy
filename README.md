@@ -305,6 +305,18 @@ See `examples/demo-workflow/global_config.yaml` for an example configuration fil
 
 ## Changelog
 
+### v3.0.4 (2026-03-16)
+
+**Bug Fix: Module Path Setup for SLURM**
+
+- Added MODULEPATH setup after sourcing module init script
+- Module paths need to include IO_tools, Libraries, etc.
+- Fixes module loading failures in SLURM jobs
+
+**Changes:**
+- `dlazy/template_generator.py`: Set up MODULEPATH with all required directories
+- Mimics /etc/profile.d/modules.sh behavior
+
 ### v3.0.3 (2026-03-16)
 
 **Bug Fix: Direct Module Initialization for SLURM**
