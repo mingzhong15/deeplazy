@@ -151,6 +151,8 @@ import os
 import sys
 import json
 
+print(f"[DEBUG] LD_LIBRARY_PATH = {{os.environ.get('LD_LIBRARY_PATH', 'NOT SET')}}", flush=True)
+
 {sys_path_line}
 
 from pathlib import Path
