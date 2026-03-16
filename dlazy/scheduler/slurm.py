@@ -60,6 +60,7 @@ class SlurmScheduler(Scheduler):
                     capture_output=True,
                     text=True,
                     timeout=60,
+                    cwd=str(script_path.parent),
                 )
 
                 if result.returncode == 0:
