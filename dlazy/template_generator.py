@@ -29,6 +29,7 @@ def _format_modules(modules: List[str]) -> str:
         lines.append(
             f"module load {mod} 2>/dev/null || echo 'Warning: module {mod} not loaded'"
         )
+    lines.append('echo "LD_LIBRARY_PATH=$LD_LIBRARY_PATH"')
     return "\n".join(lines)
 
 
