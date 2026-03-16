@@ -445,7 +445,7 @@ def cmd_batch_status(args):
     with open(state_file, "r", encoding="utf-8") as f:
         state = json.load(f)
 
-    total_batches = state.get("total_batches", 0)
+    total_batches = state.get("total_batches", state.get("estimated_batches", 0))
     completed_batches = len(state.get("completed_batches", []))
     current_batch = state.get("current_batch", 0)
     current_stage = state.get("current_stage", "olp")
@@ -459,6 +459,17 @@ def cmd_batch_status(args):
     batch_times = state.get("batch_times", {})
     completed_batch_indices = set(state.get("completed_batches", []))
 
+    if total_batches == 0:
+        existing_batches = len(list(workdir.glob(f"{BATCH_DIR_PREFIX}.*")))
+        if existing_batches > 0:
+            total_batches = existing_batches
+
+    if total_batches == 0:
+        total_batches = current_batch + 1
+
+    if total_batches == 0:
+        total_batches = get_existing_batch_count(workdir)
+
     batch_statuses = []
     total_processed = 0
     total_relay_tasks = 0
@@ -470,7 +481,7 @@ def cmd_batch_status(args):
     total_infer_errors = 0
     total_calc_errors = 0
 
-    for batch_idx in range(total_batches):
+    for batch_idx in range(max(total_batches, current_batch + 1)):
         batch_status = get_batch_detailed_status(
             workdir, batch_idx, completed_batch_indices, batch_times
         )
