@@ -924,6 +924,27 @@ batch.00000/
 - Input file format changed from plain text to JSON Lines
 - Old `poscar_list.txt` no longer supported
 
+### v2.3.1 (2026-03-17)
+
+**Critical Bug Fixes:**
+
+1. **Fixed SLURM array job state detection bug** (`batch_workflow.py:586-632`)
+   - Previously only checked the first sub-job state, causing premature stage transitions
+   - Now correctly aggregates all sub-job states:
+     - Returns `RUNNING` if any sub-job is still running/pending
+     - Returns `FAILED` if any sub-job failed (and none running)
+     - Returns `COMPLETED` only if all sub-jobs completed successfully
+   - This fix prevents calc stage from starting before infer tasks complete
+
+2. **Fixed batch_status update delay** (`batch_workflow.py:634-676`)
+   - Added `job_state` field to batch_state.json during polling loop
+   - `last_update` now reflects actual monitoring activity, not just stage transitions
+
+**Impact:**
+- Prevents incomplete task files being read by subsequent stages
+- Ensures all array sub-jobs complete before advancing to next stage
+- Better visibility of job monitoring status
+
 ### v2.3.0 (2026-03-11)
 
 **Monitor Integration:**

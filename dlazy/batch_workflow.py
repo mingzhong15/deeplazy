@@ -584,7 +584,14 @@ class BatchScheduler(WorkflowBase):
         raise RuntimeError(f"sbatch failed after {max_retries} attempts: {last_error}")
 
     def _check_slurm_job_state(self, job_id: str) -> str:
-        """Check SLURM job state."""
+        """
+        Check SLURM job state for array jobs.
+
+        For array jobs, returns the aggregate state:
+        - RUNNING if any sub-job is running/pending
+        - FAILED if any sub-job failed (and none running)
+        - COMPLETED only if all sub-jobs completed successfully
+        """
         if not job_id:
             return "UNKNOWN"
 
@@ -593,7 +600,7 @@ class BatchScheduler(WorkflowBase):
 
         main_job_id = job_id.split("_")[0]
         result = subprocess.run(
-            f"sacct -j {main_job_id} --format=State --noheader",
+            f"sacct -j {main_job_id} --format=JobID,State --noheader",
             shell=True,
             capture_output=True,
             text=True,
@@ -602,8 +609,27 @@ class BatchScheduler(WorkflowBase):
         if result.returncode != 0:
             return "UNKNOWN"
 
-        states = [s.strip() for s in result.stdout.strip().split("\n") if s.strip()]
-        return states[0] if states else "UNKNOWN"
+        running_states = {"PENDING", "RUNNING", "CONFIGURING", "COMPLETING"}
+        failed_states = {"FAILED", "NODE_FAIL", "CANCELLED", "TIMEOUT", "OUT_OF_MEMORY"}
+
+        main_job_states = set()
+        for line in result.stdout.strip().split("\n"):
+            parts = line.strip().split()
+            if len(parts) >= 2:
+                job_id_part, state = parts[0], parts[1]
+                if "." not in job_id_part:
+                    main_job_states.add(state)
+
+        if not main_job_states:
+            return "UNKNOWN"
+
+        if any(s in running_states for s in main_job_states):
+            return "RUNNING"
+
+        if any(s in failed_states for s in main_job_states):
+            return "FAILED"
+
+        return "COMPLETED"
 
     def _wait_for_job_completion(
         self, job_id: str, stage: str, check_interval: int = 60
@@ -631,6 +657,9 @@ class BatchScheduler(WorkflowBase):
         while True:
             state = self._check_slurm_job_state(job_id)
             self.logger.info("[%s] Job %s state: %s", stage, job_id, state)
+
+            self.state["job_state"] = state
+            self._save_state()
 
             if state in terminal_states:
                 if state == "COMPLETED":
