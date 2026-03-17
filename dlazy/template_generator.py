@@ -10,26 +10,16 @@ from .utils.security import validate_command_template
 
 
 def _format_modules(modules: List[str]) -> str:
-    """Format module load commands with proper initialization."""
+    """Format module load commands - simplified to avoid interfering with SLURM environment."""
     if not modules:
         return ""
     lines = [
-        "# Initialize module system (direct source for SLURM compatibility)",
-        "if [ -f /thfs4/software/modules/5.1.0/init/bash ]; then",
-        "    . /thfs4/software/modules/5.1.0/init/bash",
-        "    # Set up module paths",
-        "    module use --append /thfs4/software/modulefiles/Applications",
-        "    module use --append /thfs4/software/modulefiles/Compilers",
-        "    module use --append /thfs4/software/modulefiles/IO_tools",
-        "    module use --append /thfs4/software/modulefiles/Libraries",
-        "fi",
         "module purge 2>/dev/null || true",
     ]
     for mod in modules:
         lines.append(
             f"module load {mod} 2>/dev/null || echo 'Warning: module {mod} not loaded'"
         )
-    lines.append('echo "LD_LIBRARY_PATH=$LD_LIBRARY_PATH"')
     return "\n".join(lines)
 
 

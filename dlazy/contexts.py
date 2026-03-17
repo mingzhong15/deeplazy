@@ -95,4 +95,14 @@ class CalcContext(BaseContext):
     folders_file: Path
     error_file: Path
     hamlog_file: Path
+    num_cores: int = 64
+    max_processes: int = 1
     monitor: Optional[JobMonitor] = None
+
+    def __post_init__(self):
+        if self.num_cores <= 0:
+            raise ValueError(f"num_cores must be positive, got {self.num_cores}")
+        if self.max_processes <= 0:
+            raise ValueError(
+                f"max_processes must be positive, got {self.max_processes}"
+            )

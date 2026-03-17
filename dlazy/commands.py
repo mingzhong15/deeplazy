@@ -911,6 +911,8 @@ class CalcCommandExecutor:
         try:
             env = os.environ.copy()
 
+            ntasks = ctx.num_cores // max(1, ctx.max_processes)
+
             # 1. 创建输入文件
             run_command_safe(
                 ctx.config["commands"]["create_infile"],
@@ -929,9 +931,13 @@ class CalcCommandExecutor:
             os.symlink(ham_file, target_ham)
 
             # 3. 运行计算
+            num_cores = ctx.config.get("num_cores", 64)
+            max_processes = ctx.config.get("max_processes", 1)
+            ntasks = num_cores // max(1, max_processes)
             os.chdir(scf_path)
             run_command_safe(
                 ctx.config["commands"]["run_openmx"],
+                args={"ntasks": ntasks},
                 cwd=scf_path,
             )
 
@@ -1028,6 +1034,10 @@ class CalcCommandExecutor:
         try:
             env = os.environ.copy()
 
+            num_cores = config.get("num_cores", 64)
+            max_processes = config.get("max_processes", 1)
+            ntasks = num_cores // max(1, max_processes)
+
             run_command_safe(
                 config["commands"]["create_infile"],
                 args={"poscar": task.path, "scf": str(scf_dir)},
@@ -1049,6 +1059,7 @@ class CalcCommandExecutor:
             with open("openmx.std", "a", encoding="utf-8") as f:
                 run_command_safe(
                     config["commands"]["run_openmx"],
+                    args={"ntasks": ntasks},
                     cwd=scf_dir,
                     capture_output=False,
                 )

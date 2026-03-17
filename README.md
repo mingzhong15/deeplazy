@@ -924,6 +924,37 @@ batch.00000/
 - Input file format changed from plain text to JSON Lines
 - Old `poscar_list.txt` no longer supported
 
+### v2.3.2 (2026-03-17)
+
+**Critical Performance Fix:**
+
+1. **Fixed Calc stage MPI parallelization issue**
+   - Root cause: Complex module initialization in submit.sh interfered with SLURM environment
+   - Simplified `_format_modules()` to avoid environment variable interference
+   - Added `num_cores` and `max_processes` attributes to `CalcContext`
+   - Modified `CalcCommandExecutor.execute` and `execute_batch` to pass `ntasks` parameter
+   - Performance improvement: **~30x faster** (2 min vs 60 min per task)
+
+2. **Module initialization simplified** (`template_generator.py:12-22`)
+   - Removed explicit `source /thfs4/software/modules/.../bash`
+   - Let system default module initialization handle environment setup
+   - Prevents interference with SLURM's environment variables
+
+**Configuration Update Required:**
+
+Users should update their `global_config.yaml`:
+```yaml
+2calc:
+  num_cores: 64           # Add this
+  max_processes: 1        # Add this
+  commands:
+    run_openmx: yhrun --ntasks={ntasks} {openmx_restart} openmx_in.dat >> openmx.std 2>&1
+```
+
+**Impact:**
+- OpenMX now correctly uses all allocated CPU cores (64 MPI processes instead of 1)
+- Dramatically faster calculation times for DFT recalculation stage
+
 ### v2.3.1 (2026-03-17)
 
 **Critical Bug Fixes:**
