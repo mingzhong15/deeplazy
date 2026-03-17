@@ -127,6 +127,8 @@ class OLPCommandExecutor:
 
         try:
             env = os.environ.copy()
+            slurm_config = ctx.config.get("slurm", {})
+            env.update(slurm_config.get("env_vars", {}))
             ntasks = ctx.num_cores // ctx.max_processes
 
             # 1. 创建输入文件
@@ -135,12 +137,13 @@ class OLPCommandExecutor:
                 args={"poscar": path, "scf": str(scf_path)},
                 cwd=scf_path,
                 check=True,
+                env=env,
             )
 
             # 2. 运行OpenMX（带节点错误检测）
             os.chdir(scf_path)
             node_error_detected = OLPCommandExecutor._run_openmx_with_monitor(
-                ctx.config["commands"]["run_openmx"], ntasks=ntasks
+                ctx.config["commands"]["run_openmx"], ntasks=ntasks, env=env
             )
 
             if node_error_detected:
@@ -156,6 +159,7 @@ class OLPCommandExecutor:
                 args={"scf": str(scf_path)},
                 cwd=geth_path,
                 check=True,
+                env=env,
             )
 
             # 4. 验证结果
@@ -180,7 +184,9 @@ class OLPCommandExecutor:
             return ("failed", label)
 
     @staticmethod
-    def _run_openmx_with_monitor(command_template: str, ntasks: int) -> bool:
+    def _run_openmx_with_monitor(
+        command_template: str, ntasks: int, env: Optional[Dict[str, str]] = None
+    ) -> bool:
         """
         运行OpenMX并监控节点错误
 
@@ -195,6 +201,7 @@ class OLPCommandExecutor:
             stdout=open("openmx.std", "w", encoding="utf-8"),
             stderr=subprocess.STDOUT,
             text=True,
+            env=env,
         )
 
         node_error_detected = False
@@ -257,12 +264,15 @@ class OLPCommandExecutor:
 
         try:
             env = os.environ.copy()
+            slurm_config = config.get("slurm", {})
+            env.update(slurm_config.get("env_vars", {}))
 
             run_command_safe(
                 config["commands"]["create_infile"],
                 args={"poscar": task.path, "scf": str(task_dir)},
                 cwd=task_dir,
                 check=True,
+                env=env,
             )
 
             os.chdir(task_dir)
@@ -284,6 +294,7 @@ class OLPCommandExecutor:
                 args={"scf": str(task_dir)},
                 cwd=task_dir,
                 check=True,
+                env=env,
             )
 
             overlaps_file = task_dir / OVERLAP_FILENAME
@@ -369,6 +380,10 @@ class InferCommandExecutor:
         ensure_directory(config_dir)
 
         try:
+            env = os.environ.copy()
+            slurm_config = ctx.config.get("slurm", {})
+            env.update(slurm_config.get("env_vars", {}))
+
             # 第一步：Link OLP + Transform
             logger.info("开始 link olp 阶段")
             InferCommandExecutor._link_overlap_files(
@@ -382,6 +397,7 @@ class InferCommandExecutor:
                 input_dir / DFT_SUBDIR,
                 ctx.parallel,
                 logger,
+                env=env,
             )
 
             # 第二步：Infer
@@ -390,7 +406,7 @@ class InferCommandExecutor:
             )
             logger.info("开始 infer 阶段")
             InferCommandExecutor._run_infer(
-                ctx.config["commands"]["infer"], config_path, logger
+                ctx.config["commands"]["infer"], config_path, logger, env=env
             )
 
             # 第三步：Link Infer + Reverse Transform + Hamlog
@@ -413,6 +429,7 @@ class InferCommandExecutor:
                 ctx.parallel,
                 logger,
                 reverse=True,
+                env=env,
             )
             InferCommandExecutor._append_hamlog(
                 records, ctx.result_dir / GETH_SUBDIR, ctx.hamlog_file, logger
@@ -497,6 +514,7 @@ class InferCommandExecutor:
         parallel: int,
         logger,
         reverse: bool = False,
+        env: Optional[Dict[str, str]] = None,
     ):
         """运行格式转换"""
         ensure_directory(output_dir)
@@ -505,7 +523,7 @@ class InferCommandExecutor:
             input_dir=input_dir, output_dir=output_dir, parallel=parallel
         )
         logger.info("[%s] 执行命令: %s", stage_name, command)
-        run_subprocess(command, shell=True)
+        run_subprocess(command, shell=True, env=env)
 
     @staticmethod
     def _generate_infer_config(
@@ -531,11 +549,16 @@ class InferCommandExecutor:
         return config_path
 
     @staticmethod
-    def _run_infer(command_template: str, config_path: Path, logger):
+    def _run_infer(
+        command_template: str,
+        config_path: Path,
+        logger,
+        env: Optional[Dict[str, str]] = None,
+    ):
         """运行推理"""
         command = command_template.format(config_path=config_path)
         logger.info("[infer] 执行命令: %s", command)
-        run_subprocess(command, shell=True)
+        run_subprocess(command, shell=True, env=env)
 
     @staticmethod
     def _find_latest_output(output_root: Path, logger) -> Path:
@@ -621,7 +644,7 @@ class InferCommandExecutor:
 
     @staticmethod
     def _run_command_with_node_monitor(
-        command: str, cwd: Path, logger
+        command: str, cwd: Path, logger, env: Optional[Dict[str, str]] = None
     ) -> Tuple[bool, Optional[str]]:
         """
         运行命令并监控节点错误
@@ -630,6 +653,7 @@ class InferCommandExecutor:
             command: 要执行的命令
             cwd: 工作目录
             logger: 日志器
+            env: 环境变量
 
         Returns:
             (node_error_detected, node_name): 是否检测到节点错误及节点名
@@ -647,6 +671,7 @@ class InferCommandExecutor:
             stderr=subprocess.STDOUT,
             text=True,
             cwd=str(cwd),
+            env=env,
         )
 
         def monitor_output():
@@ -720,6 +745,10 @@ class InferCommandExecutor:
         ensure_directory(final_geth_dir)
 
         try:
+            env = os.environ.copy()
+            slurm_config = config.get("slurm", {})
+            env.update(slurm_config.get("env_vars", {}))
+
             for i, infer_task in enumerate(infer_tasks):
                 task_dirname = f"{TASK_DIR_PREFIX}.{i:0{TASK_PADDING}d}"
                 target_task_dir = inputs_geth_dir / task_dirname
@@ -758,7 +787,7 @@ class InferCommandExecutor:
                 parallel=parallel,
             )
             logger.info("Running transform: %s", command)
-            run_subprocess(command, shell=True)
+            run_subprocess(command, shell=True, env=env)
 
             package_dir = Path(__file__).parent
             template_path = package_dir / INFER_TEMPLATE
@@ -777,7 +806,7 @@ class InferCommandExecutor:
             command = infer_cmd.format(config_path=infer_config_path)
             logger.info("Running infer: %s", command)
             node_error, node_name = InferCommandExecutor._run_command_with_node_monitor(
-                command, group_dir, logger
+                command, group_dir, logger, env=env
             )
             if node_error:
                 raise InferError(f"Node error detected on {node_name}")
@@ -831,7 +860,7 @@ class InferCommandExecutor:
                 parallel=parallel,
             )
             logger.info("Running transform_reverse: %s", command)
-            run_subprocess(command, shell=True)
+            run_subprocess(command, shell=True, env=env)
 
             for i, infer_task in enumerate(infer_tasks):
                 task_dirname = f"{TASK_DIR_PREFIX}.{i:0{TASK_PADDING}d}"
@@ -910,6 +939,8 @@ class CalcCommandExecutor:
 
         try:
             env = os.environ.copy()
+            slurm_config = ctx.config.get("slurm", {})
+            env.update(slurm_config.get("env_vars", {}))
 
             ntasks = ctx.num_cores // max(1, ctx.max_processes)
 
@@ -919,6 +950,7 @@ class CalcCommandExecutor:
                 args={"poscar": label, "scf": str(scf_path)},
                 cwd=scf_path,
                 check=True,
+                env=env,
             )
 
             # 2. 链接哈密顿量
@@ -939,6 +971,7 @@ class CalcCommandExecutor:
                 ctx.config["commands"]["run_openmx"],
                 args={"ntasks": ntasks},
                 cwd=scf_path,
+                env=env,
             )
 
             # 后处理 - 使用非 shell 方式
@@ -954,6 +987,7 @@ class CalcCommandExecutor:
                 args={"scf": str(scf_path)},
                 cwd=scf_path,
                 capture_output=True,
+                env=env,
             )
 
             if "False" in result.stdout:
@@ -968,6 +1002,7 @@ class CalcCommandExecutor:
                 ctx.config["commands"]["extract_hamiltonian"],
                 args={"scf": str(scf_path)},
                 cwd=geth_path,
+                env=env,
             )
 
             # 6. 验证结果
@@ -1033,6 +1068,8 @@ class CalcCommandExecutor:
 
         try:
             env = os.environ.copy()
+            slurm_config = config.get("slurm", {})
+            env.update(slurm_config.get("env_vars", {}))
 
             num_cores = config.get("num_cores", 64)
             max_processes = config.get("max_processes", 1)
@@ -1043,6 +1080,7 @@ class CalcCommandExecutor:
                 args={"poscar": task.path, "scf": str(scf_dir)},
                 cwd=scf_dir,
                 check=True,
+                env=env,
             )
 
             infer_geth_dir = Path(task.geth_path)
@@ -1062,6 +1100,7 @@ class CalcCommandExecutor:
                     args={"ntasks": ntasks},
                     cwd=scf_dir,
                     capture_output=False,
+                    env=env,
                 )
 
             # 使用非 shell 方式处理后处理
@@ -1076,6 +1115,7 @@ class CalcCommandExecutor:
                 args={"scf": str(scf_dir)},
                 cwd=scf_dir,
                 capture_output=True,
+                env=env,
             )
 
             if "False" in result.stdout:
@@ -1089,6 +1129,7 @@ class CalcCommandExecutor:
                 config["commands"]["extract_hamiltonian"],
                 args={"scf": str(scf_dir)},
                 cwd=geth_dir,
+                env=env,
             )
 
             hamiltonians_file = geth_dir / HAMILTONIAN_FILENAME

@@ -392,6 +392,8 @@ class WorkflowExecutor:
             folders_file=path_resolver.get_calc_folders_file(),
             error_file=path_resolver.get_calc_error_file(),
             hamlog_file=path_resolver.get_infer_hamlog_file(),
+            num_cores=config.get("num_cores", 64),
+            max_processes=config.get("max_processes", 1),
             monitor=monitor,
         )
 
@@ -435,7 +437,7 @@ class WorkflowExecutor:
     def _run_calc_legacy(
         ctx: CalcContext, records: List[Tuple[str, str]]
     ) -> List[Tuple[str, str]]:
-        with multiprocessing.Pool(processes=1) as pool:
+        with multiprocessing.Pool(processes=ctx.max_processes) as pool:
             execute_func = partial(CalcCommandExecutor.execute, ctx=ctx)
             results = pool.map(execute_func, records)
         return results
