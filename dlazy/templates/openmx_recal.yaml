@@ -1,0 +1,66 @@
+# ============================================
+# OpenMX Recalculation Template
+# ============================================
+# Template for OpenMX DFT recalculation workflow
+# Used for generating SLURM scripts for Calc stage
+# ============================================
+
+name: openmx_recal
+
+# SLURM job configuration
+slurm:
+  job_name: "B-calc"
+  partition: "th3k"
+  nodes: 1
+  ntasks_per_node: 64
+  cpus_per_task: 1
+  time: "4-00:00:00"
+  array_size: 10
+  modules:
+    - "hdf5/1.10.7-gcc9.4-mpich4.1.2"
+    - "openmx/3.9-gcc9.4.0-mpich4.1.2"
+  env_vars:
+    OPENBLAS_NUM_THREADS: 1
+
+# Commands to execute for each recalculation task
+commands:
+  # Create OpenMX input file from restart
+  create_infile: "{python} {scripts.create_infile_restart} -i {poscar} -o {scf}"
+  
+  # Run OpenMX with predicted Hamiltonian as initial guess
+  run_openmx: "yhrun {openmx_restart} openmx_in.dat >> openmx.std 2>&1"
+  
+  # Check SCF convergence
+  check_conv: "{python} {scripts.check_conv} -i {scf}"
+  
+  # Extract converged Hamiltonian
+  extract_hamiltonian: "{scripts.extract_hamiltonian} -i {scf} -o . -s true > process.log 2>&1"
+
+# Validation steps after calculation
+validation:
+  # Check SCF convergence status
+  scf_convergence:
+    enabled: true
+    required: true
+    # SCF is converged whenenergy not changed significantly
+  
+  # Check HDF5 file integrity
+  hdf5_integrity:
+    enabled: true
+    required: true
+    # Check for NaN, Inf, empty arrays
+
+# Stage-specific settings
+stage:
+  name: "2calc"
+  subdir: "calc"
+
+# Output configuration
+output:
+  # Output directory pattern
+  dir: "output_calc/task.{task_id:06d}"
+  
+  # Expected output files pattern
+  pattern:
+    - "scf/hamiltonians.h5"
+    - "geth/hamiltonians.h5"

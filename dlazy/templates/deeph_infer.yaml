@@ -1,0 +1,47 @@
+# DeepH Inference Template
+# Template for DeepH inference stage: transform → infer → transform_reverse
+
+name: deeph_infer
+
+# SLURM job configuration
+slurm:
+  job_name: "B-infer"
+  partition: "th3k"
+  nodes: 1
+  ntasks_per_node: 1
+  cpus_per_task: 64
+  time: "2-00:00:00"
+  array_size: 20
+  modules: []
+  env_vars: {}
+
+# Inference configuration
+num_groups: 10
+random_seed: 137
+parallel: 56
+model_dir: "${HOME}/model/deeph/model"
+dataset_prefix: "dataset"
+
+# Stage-specific settings
+stage:
+  name: "1infer"
+  subdir: "infer"
+
+# Commands for three-stage inference pipeline
+commands:
+  transform: "{python_deeph}/dock.io.DeepHOldToNew -p {parallel} -t 0 {input_dir} {output_dir}"
+  infer: "{python_deeph}/deeph-infer {config_path}"
+  transform_reverse: "{python_deeph}/dock.io.DeepHOldToNew -p {parallel} --backward -t 0 {output_dir} {input_dir}"
+
+# Validation configuration
+validation:
+  hdf5_integrity:
+    enabled: true
+    check_nan: true
+    check_inf: true
+    check_empty: true
+
+# Output configuration
+output:
+  dir: "output_infer"
+  pattern: "**/hamiltonians.h5"

@@ -1,0 +1,61 @@
+# ============================================
+# OpenMX OLP Template Configuration
+# ============================================
+# Template for OpenMX overlap calculation (OLP) stage
+# Used by dlazy batch workflow for SLURM job generation
+# ============================================
+
+name: openmx_olp
+description: "OpenMX overlap calculation workflow template"
+
+# SLURM job configuration
+slurm:
+  job_name: "B-olp"
+  partition: "th3k"
+  nodes: 1
+  ntasks_per_node: 64
+  cpus_per_task: 1
+  time: "2-00:00:00"
+  array_size: 10
+  modules:
+    - "hdf5/1.10.7-gcc9.4-mpich4.1.2"
+    - "openmx/3.9-gcc9.4.0-mpich4.1.2"
+  env_vars:
+    OPENBLAS_NUM_THREADS: 1
+  exclude: ""
+
+# Command templates (placeholders: {python}, {poscar}, {scf}, {ntasks}, etc.)
+commands:
+  create_infile: "{python} {scripts.create_infile_olp} -i {poscar} -o {scf}"
+  run_openmx: "yhrun --ntasks={ntasks} --exclusive {openmx_olp} openmx_in.dat"
+  extract_overlap: "{python} {scripts.extract_overlap} -i {scf} -o . > process.log 2>&1"
+
+# Validation rules
+validation:
+  - name: hdf5_integrity
+    type: hdf5_integrity
+    file: "overlaps.h5"
+    checks:
+      - "file_exists"
+      - "no_nan"
+      - "no_inf"
+      - "not_empty"
+
+# Output configuration
+output:
+  dir: "output_olp"
+  pattern: "task.*/overlaps.h5"
+  folders_file: "folders.dat"
+  progress_file: "progress"
+
+# Task configuration
+task:
+  num_cores: 64
+  max_processes: 8
+  input_field: "path"
+  input_format: "jsonl"
+
+# Stage-specific settings
+stage:
+  name: "0olp"
+  subdir: "olp"
