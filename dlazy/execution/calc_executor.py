@@ -122,6 +122,10 @@ class CalcExecutor(Executor):
         warnings: List[str] = []
         metrics: Dict[str, Any] = {}
 
+        env = os.environ.copy()
+        slurm_config = ctx.config.get("slurm", {})
+        env.update(slurm_config.get("env_vars", {}))
+
         # Check for node error flag
         if self.node_error_flag and self.node_error_flag.exists():
             return TaskResult(
@@ -149,6 +153,7 @@ class CalcExecutor(Executor):
                     args={"poscar": task.path, "scf": str(scf_dir)},
                     cwd=scf_dir,
                     check=True,
+                    env=env,
                 )
 
             # 2. Run OpenMX SCF calculation with node error monitoring
@@ -156,6 +161,7 @@ class CalcExecutor(Executor):
                 ctx.config.get("commands", {}).get("run_openmx", self.openmx_command),
                 scf_dir,
                 ctx,
+                env,
             )
 
             if node_error_detected:
@@ -180,6 +186,7 @@ class CalcExecutor(Executor):
                     args={"scf": str(scf_dir)},
                     cwd=scf_dir,
                     capture_output=True,
+                    env=env,
                 )
                 if "False" in result.stdout:
                     scf_converged = False
@@ -204,6 +211,7 @@ class CalcExecutor(Executor):
                     extract_cmd,
                     args={"scf": str(scf_dir)},
                     cwd=geth_dir,
+                    env=env,
                 )
 
             # 6. Verify output
@@ -330,6 +338,7 @@ class CalcExecutor(Executor):
         command_template: str,
         workdir: Path,
         ctx: ExecutorContext,
+        env: Optional[Dict[str, str]] = None,
     ) -> bool:
         """Run OpenMX with node error monitoring.
 
@@ -337,6 +346,7 @@ class CalcExecutor(Executor):
             command_template: Command template to execute
             workdir: Working directory
             ctx: Execution context
+            env: Environment variables dict
 
         Returns:
             True if node error detected, False otherwise
@@ -354,6 +364,7 @@ class CalcExecutor(Executor):
             stderr=subprocess.STDOUT,
             text=True,
             cwd=str(workdir),
+            env=env,
         )
 
         def monitor_output():

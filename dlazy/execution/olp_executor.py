@@ -94,6 +94,13 @@ class OlpExecutor(Executor):
             )
 
         try:
+            # Build environment with SLURM config env_vars
+            env = os.environ.copy()
+            slurm_config = ctx.config.get("slurm", {})
+            env.update(slurm_config.get("env_vars", {}))
+            ntasks = self.num_cores // max(1, self.max_processes)
+            env["OMP_NUM_THREADS"] = str(ntasks)
+
             create_cmd = ctx.config.get("commands", {}).get("create_infile")
             if create_cmd:
                 subprocess.run(
@@ -102,9 +109,8 @@ class OlpExecutor(Executor):
                     cwd=workdir,
                     check=True,
                     capture_output=True,
+                    env=env,
                 )
-
-            ntasks = self.num_cores // max(1, self.max_processes)
 
             result = subprocess.run(
                 self.openmx_command,
@@ -112,7 +118,7 @@ class OlpExecutor(Executor):
                 cwd=workdir,
                 capture_output=True,
                 text=True,
-                env={**os.environ, "OMP_NUM_THREADS": str(ntasks)},
+                env=env,
             )
 
             if result.returncode != 0:
@@ -134,6 +140,7 @@ class OlpExecutor(Executor):
                     cwd=workdir,
                     capture_output=True,
                     text=True,
+                    env=env,
                 )
                 if extract_result.returncode != 0:
                     warnings.append(f"Extract warning: {extract_result.stderr}")

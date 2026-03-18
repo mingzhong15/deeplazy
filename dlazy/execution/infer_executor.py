@@ -159,6 +159,10 @@ class InferExecutor(Executor):
         outputs_dir = workdir / OUTPUTS_SUBDIR
         final_geth_dir = workdir / GETH_SUBDIR
 
+        env = os.environ.copy()
+        slurm_config = ctx.config.get("slurm", {})
+        env.update(slurm_config.get("env_vars", {}))
+
         try:
             # Step 1: Run transform (geth -> dft format)
             if self.transform_command:
@@ -176,6 +180,7 @@ class InferExecutor(Executor):
                     cwd=workdir,
                     capture_output=True,
                     text=True,
+                    env=env,
                 )
                 if result.returncode != 0:
                     errors.append(f"Transform failed: {result.stderr}")
@@ -198,6 +203,7 @@ class InferExecutor(Executor):
                     cwd=workdir,
                     capture_output=True,
                     text=True,
+                    env=env,
                 )
                 if result.returncode != 0:
                     errors.append(f"Inference failed: {result.stderr}")
@@ -272,6 +278,7 @@ class InferExecutor(Executor):
                     cwd=workdir,
                     capture_output=True,
                     text=True,
+                    env=env,
                 )
                 if result.returncode != 0:
                     errors.append(f"Transform_reverse failed: {result.stderr}")
