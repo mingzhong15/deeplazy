@@ -5,6 +5,7 @@ import math
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from .template_loader import load_template
 from .utils.security import validate_path, validate_template_string
 from .utils.security import validate_command_template
 
@@ -60,6 +61,160 @@ def _parse_batch_index_from_workdir(workdir: str) -> Optional[int]:
     if match:
         return int(match.group(1))
     return None
+
+
+def generate_script_from_template(
+    template_name: str,
+    config: Dict[str, Any],
+) -> str:
+    """
+    Generate SLURM script from template with user configuration.
+
+    Args:
+        template_name: Template name (e.g., "openmx_olp", "deeph_infer", "openmx_recal")
+        config: User configuration to override template defaults. Can include:
+            - python_path: Python interpreter path
+            - config_path: Global config file path
+            - num_tasks: Number of tasks for batch size calculation
+            - slurm: SLURM configuration overrides
+            - software: Software configuration (e.g., dlazy_path)
+            - workdir: Working directory for batch mode
+            - batch_index: Batch index for batch mode
+            - workflow_root: Workflow root directory for batch mode
+            - tasks_file: Path to tasks file (jsonl)
+            - Additional stage-specific parameters
+
+    Returns:
+        SLURM script content as string
+
+    Example:
+        >>> from dlazy.template_generator import generate_script_from_template
+        >>> script = generate_script_from_template(
+        ...     template_name="openmx_olp",
+        ...     config={
+        ...         "python_path": "/path/to/python",
+        ...         "config_path": "/path/to/config.yaml",
+        ...         "num_tasks": 100,
+        ...     }
+        ... )
+    """
+    # Load template configuration
+    template = load_template(template_name)
+
+    # Merge user config with template defaults
+    merged_config = _merge_config(template, config)
+
+    # Extract configuration values
+    slurm_config = merged_config.get("slurm", {})
+    software_config = merged_config.get("software", {})
+
+    python_path = config.get("python_path", "python")
+    config_path = config.get("config_path", "")
+    num_tasks = config.get("num_tasks", 1)
+    tasks_file = config.get("tasks_file")
+    workdir = config.get("workdir")
+    batch_index = config.get("batch_index")
+    workflow_root = config.get("workflow_root")
+
+    # Get stage name from template
+    stage_info = template.get("stage", {})
+    stage_name = stage_info.get("name", "")
+
+    # Generate script based on stage type
+    if stage_name == "0olp":
+        return generate_embedded_olp_script(
+            python_path=python_path,
+            config_path=config_path,
+            num_tasks=num_tasks,
+            slurm_config=slurm_config,
+            software_config=software_config,
+            tasks_file=tasks_file,
+            workdir=workdir,
+            batch_index=batch_index,
+            workflow_root=workflow_root,
+        )
+    elif stage_name == "1infer":
+        num_groups = config.get("num_groups", num_tasks)
+        return generate_embedded_infer_script(
+            python_path=python_path,
+            config_path=config_path,
+            num_groups=num_groups,
+            slurm_config=slurm_config,
+            software_config=software_config,
+            workdir=workdir,
+            batch_index=batch_index,
+            workflow_root=workflow_root,
+        )
+    elif stage_name == "2calc":
+        return generate_embedded_calc_script(
+            python_path=python_path,
+            config_path=config_path,
+            num_tasks=num_tasks,
+            slurm_config=slurm_config,
+            software_config=software_config,
+            tasks_file=tasks_file,
+            workdir=workdir,
+            batch_index=batch_index,
+            workflow_root=workflow_root,
+        )
+    else:
+        raise ValueError(
+            f"Unknown stage name '{stage_name}' in template '{template_name}'. "
+            f"Supported stages: 0olp, 1infer, 2calc"
+        )
+
+
+def _merge_config(template: Dict[str, Any], user_config: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Merge user configuration with template defaults.
+
+    Template defaults are loaded first, then user config overrides.
+    For nested dicts (like slurm), performs deep merge.
+
+    Args:
+        template: Template configuration dict
+        user_config: User configuration dict
+
+    Returns:
+        Merged configuration dict
+    """
+    import copy
+
+    result = copy.deepcopy(template)
+
+    # Top-level merge for non-dict values
+    for key, value in user_config.items():
+        if key in result and isinstance(result[key], dict) and isinstance(value, dict):
+            # Deep merge for dict values
+            result[key] = _deep_merge(result[key], value)
+        else:
+            result[key] = value
+
+    return result
+
+
+def _deep_merge(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Deep merge two dictionaries.
+
+    Args:
+        base: Base dictionary
+        override: Override dictionary
+
+    Returns:
+        Merged dictionary
+    """
+    import copy
+
+    result = copy.deepcopy(base)
+
+    for key, value in override.items():
+        if key in result and isinstance(result[key], dict) and isinstance(value, dict):
+            result[key] = _deep_merge(result[key], value)
+        else:
+            result[key] = copy.deepcopy(value)
+
+    return result
 
 
 def generate_embedded_olp_script(
