@@ -52,6 +52,48 @@ dlazy batch-status --config /path/to/global_config.yaml
 | `1infer` | DeepH inference | overlap files | predicted Hamiltonians |
 | `2calc` | DFT recalculation | predicted Hamiltonians | accurate Hamiltonians |
 
+## Template System
+
+Templates provide pre-configured workflow configurations for common tasks.
+
+### List Available Templates
+
+```bash
+dlazy list-templates
+```
+
+### Run a Template
+
+```bash
+dlazy run --template openmx_olp --config global_config.yaml
+```
+
+### Available Templates
+
+| Template | Description |
+|----------|-------------|
+| `openmx_olp` | OpenMX overlap calculation |
+| `deeph_infer` | DeepH inference |
+| `openmx_recal` | OpenMX DFT recalculation |
+
+### Creating Custom Templates
+
+Templates are YAML files located in `dlazy/templates/`. Each template defines the workflow configuration:
+
+```yaml
+name: openmx_olp
+description: OpenMX overlap calculation template
+stages:
+  0olp:
+    command: openmx ...
+  1infer:
+    command: deeph-infer ...
+  2calc:
+    command: openmx ...
+```
+
+See `dlazy/templates/` for examples.
+
 ## Batch Workflow
 
 For large-scale structure calculations, use the batch workflow:

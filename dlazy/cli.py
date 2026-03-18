@@ -21,6 +21,10 @@ console = Console()
 
 def cmd_run(args):
     """运行工作流"""
+    # If --template is provided, delegate to cmd_run_template
+    if hasattr(args, "template") and args.template:
+        return cmd_run_template(args)
+
     from .workflow import WorkflowManager
 
     config_path = validate_path(args.config, must_exist=True)
@@ -184,6 +188,55 @@ def cmd_validate(args):
 def cmd_version(args):
     """显示版本"""
     print(f"dlazy {__version__}")
+
+
+def cmd_list_templates(args):
+    """列出可用模板"""
+    from .template_loader import list_templates
+
+    templates = list_templates()
+    if templates:
+        print(f"Available templates: {', '.join(templates)}")
+    else:
+        print("No templates found")
+
+
+def cmd_run_template(args):
+    """从模板生成并运行脚本"""
+    from .template_generator import generate_script_from_template
+
+    if not args.template:
+        print("错误: --template 参数是必需的", file=sys.stderr)
+        sys.exit(1)
+
+    config_path = validate_path(args.config, must_exist=True)
+    workdir = (
+        validate_path(args.workdir, base_dir=config_path.parent)
+        if args.workdir
+        else config_path.parent
+    )
+
+    # Load config to get software settings
+    from .utils import load_yaml_config
+
+    config = load_yaml_config(config_path)
+
+    # Build generator config
+    generator_config = {
+        "python_path": config.get("software", {}).get("python", "python"),
+        "config_path": str(config_path),
+        "workdir": str(workdir),
+    }
+
+    # Add software config if present
+    if "software" in config:
+        generator_config["software"] = config["software"]
+
+    # Generate script
+    script = generate_script_from_template(args.template, generator_config)
+
+    # Output the script
+    print(script)
 
 
 def cmd_batch(args):
@@ -897,6 +950,17 @@ def main():
 
     parser_version = subparsers.add_parser("version", help="显示版本")
     parser_version.set_defaults(func=cmd_version)
+
+    parser_list_templates = subparsers.add_parser(
+        "list-templates", help="列出可用模板"
+    )
+    parser_list_templates.set_defaults(func=cmd_list_templates)
+
+    # Update run parser to support --template
+    parser_run.add_argument(
+        "--template",
+        help="模板名称 (如 openmx_olp, deeph_infer, openmx_recal)",
+    )
 
     parser_batch = subparsers.add_parser("batch", help="运行批量工作流")
     parser_batch.add_argument(
