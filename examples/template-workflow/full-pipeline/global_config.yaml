@@ -1,0 +1,69 @@
+# ============================================
+# 完整流程配置示例 - OLP → Infer → Calc
+# ============================================
+# 使用方法:
+#   dlazy run --config global_config.yaml
+#
+# 说明:
+#   - 按 steps 定义的顺序执行模板
+#   - 数据自动在步骤间传递
+#   - 每个步骤可独立覆盖配置
+# ============================================
+
+# ============================================
+# 软件路径配置
+# ============================================
+software:
+  python: "${HOME}/software/miniconda3/bin/python"
+  python_deeph: "${HOME}/software/miniconda3/envs/deeph-1.0.4/bin/"
+  
+  openmx_olp: "${HOME}/software/openmx/openmx3.9.9_olponly/source/openmx"
+  openmx_restart: "${HOME}/software/openmx/openmx3.9.9_resume_from_H/source/openmx"
+  
+  scripts:
+    create_infile_olp: "${HOME}/script/input_from_mind/openmx/create_infile_noniggli.py"
+    create_infile_restart: "${HOME}/script/input_from_mind/openmx/create_infile_restart.py"
+    check_conv: "${HOME}/script/input_from_mind/openmx/check_conv_openmx.py"
+    extract_overlap: "${HOME}/script/openmx_get_data_olponly.py"
+    extract_hamiltonian: "${HOME}/script/openmx_get_data.jl"
+
+  deeph_transform: "dock.io.DeepHOldToNew"
+  deeph_infer: "deeph-infer"
+
+# ============================================
+# 工作流步骤定义
+# ============================================
+workflow:
+  steps:
+    - template: openmx_olp
+    - template: deeph_infer
+    - template: openmx_recal
+
+# ============================================
+# 推理阶段配置
+# ============================================
+infer:
+  num_groups: 10
+  random_seed: 137
+  parallel: 56
+  model_dir: "${HOME}/model/deeph/model"
+  dataset_prefix: "dataset"
+
+# ============================================
+# 可选：覆盖模板默认配置
+# ============================================
+overrides:
+  openmx_olp:
+    slurm:
+      partition: "thcp"
+      array_size: 2
+      
+  deeph_infer:
+    slurm:
+      partition: "thcp"
+    num_groups: 5
+    
+  openmx_recal:
+    slurm:
+      partition: "thcp"
+      time: "2-00:00:00"
