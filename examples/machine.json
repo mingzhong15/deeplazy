@@ -12,7 +12,8 @@
     "group_size": 50,
     "custom_flags": [
       "#SBATCH --exclusive",
-      "#SBATCH --exclude=node8,node20,node22,node26"
+      "#SBATCH --exclude=node8,node20,node22,node26",
+      "#SBATCH --time=48:00:00"
     ],
     "source_list": [
       "/public/home/tangzc/intel/oneapi/setvars.sh"

@@ -1,20 +1,23 @@
 {
   "name": "al_coopt_300K",
-  "structures": "datasets/al/structures_300K.txt",
+  "structures": "../co-opt-calc/datasets/al/structures_300K.txt",
   "work_dir": "datasets/al",
+  "mpi_cmd": "mpirun -np {cpus}",
+  "cpus_per_task": 64,
   "openmx": {
-    "module_path": ".",
+    "module_path": "../co-opt-calc",
     "executable": "/public/home/mind/software/openmx/3.9.9_devel/openmx",
     "data_path": "/public/home/mind/software/openmx/DFT_DATA19",
     "calc_type": "restart",
     "max_iter": 200,
     "mixing_type": "RMM-DIISH",
     "startpulay": 99,
+    "mixing_history": 30,
     "init_mixing_weight": 0.3,
     "max_mixing_weight": 0.8,
     "detailed_output": true,
     "step1_mix_h": false,
-    "deeph_dir": "../co-opt-calc/inference/outputs/dft"
+    "deeph_dir": "../co-opt-calc/inference/outputs/2026-06-22_16-59-12/dft"
   },
   "steps": [
     {
