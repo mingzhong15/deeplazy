@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "dlazy"
 version = "0.1.0"
 description = "Minimal workflow orchestrator for DeepH co-optimization"
-requires-python = ">=3.10"
+requires-python = ">=3.8"
 dependencies = [
     "dpdispatcher>=1.0",
     "pyyaml>=6.0",
