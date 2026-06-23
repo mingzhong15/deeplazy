@@ -18,6 +18,10 @@ def load_param(path):
             if k in s:
                 s[k] = str((base / s[k]).resolve())
     param["_base"] = str(base)
+    openmx = param.get("openmx", {})
+    for key in ("module_path", "deeph_dir"):
+        if key in openmx:
+            openmx[key] = str((base / openmx[key]).resolve())
     if "mpi_cmd" not in param:
         param["mpi_cmd"] = "mpirun -np {cpus}"
     return param
@@ -35,9 +39,8 @@ def load_machine(path):
 def resolve_openmx_generator(param):
     module_path = param.get("openmx", {}).get("module_path")
     if module_path:
-        mp = str(Path(module_path).resolve())
-        if mp not in sys.path:
-            sys.path.insert(0, mp)
+        if module_path not in sys.path:
+            sys.path.insert(0, module_path)
     try:
         from input_from_mind.openmx import OpenMXGenerator as Gen
     except ImportError:
