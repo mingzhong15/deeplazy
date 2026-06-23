@@ -1,6 +1,7 @@
 {
   "name": "al_coopt_300K",
   "structures": "../co-opt-calc/datasets/al/structures_300K.txt",
+  "structures_base": "../co-opt-calc",
   "work_dir": "datasets/al",
   "mpi_cmd": "mpirun -np {cpus}",
   "cpus_per_task": 64,

@@ -20,7 +20,10 @@ class RestartSCFStep:
 
     def prepare(self):
         tasks = []
-        structures = utils.read_structures(self.param["structures"])
+        structures = utils.read_structures(
+            self.param["structures"],
+            base=self.param.get("structures_base"),
+        )
         openmx_cfg = self.param.get("openmx", {})
         exe = openmx_cfg["executable"]
         work_dir = Path(self.param["work_dir"])
@@ -92,7 +95,10 @@ class RestartSCFStep:
         return tasks
 
     def collect(self):
-        structures = utils.read_structures(self.param["structures"])
+        structures = utils.read_structures(
+            self.param["structures"],
+            base=self.param.get("structures_base"),
+        )
         work_dir = Path(self.param["work_dir"])
         calc_type = self.param.get("openmx", {}).get("calc_type", "restart")
         final_h = {}

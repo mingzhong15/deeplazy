@@ -2,10 +2,12 @@ import re
 from pathlib import Path
 
 
-def read_structures(path):
-    """Return list of (structure_id, poscar_path) from a structures file."""
+def read_structures(path, base=None):
     result = []
-    base = Path(path).parent
+    if base is None:
+        base = Path(path).parent
+    else:
+        base = Path(base)
     with open(path) as f:
         for line in f:
             line = line.strip()
