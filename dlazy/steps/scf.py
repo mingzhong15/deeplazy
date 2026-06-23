@@ -69,16 +69,18 @@ class RestartSCFStep:
 
             if init_source == "deeph":
                 deeph_dir = openmx_cfg.get("deeph_dir")
-                if deeph_dir and not pred_link.exists():
+                if deeph_dir:
                     src = Path(deeph_dir) / sid / "hamiltonian_pred.h5"
                     if src.exists():
+                        if pred_link.is_symlink() or pred_link.exists():
+                            pred_link.unlink()
                         pred_link.symlink_to(src)
                         print(f"  link deeph: {sid}/{self.name}")
 
             elif init_source == "prev" and prev_results:
                 src_path = prev_results.get(sid)
                 if src_path and Path(src_path).exists():
-                    if pred_link.exists() or pred_link.is_symlink():
+                    if pred_link.is_symlink() or pred_link.exists():
                         pred_link.unlink()
                     pred_link.symlink_to(Path(src_path))
                     print(f"  link prev: {sid}/{self.name}")
