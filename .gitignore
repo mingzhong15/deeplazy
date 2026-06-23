@@ -1,0 +1,12 @@
+*.egg-info/
+__pycache__/
+*.pyc
+dpdispatcher.log
+tag_failure_*
+*_job_tag_finished
+*_task_tag_finished
+*_flag_if_job_task_fail
+*_last_err_file
+*_job_id
+*.sub
+*.sub.run
