@@ -1,0 +1,24 @@
+{
+  "machine": {
+    "batch_type": "Slurm",
+    "context_type": "LocalContext",
+    "local_root": "./",
+    "remote_root": "./"
+  },
+  "resources": {
+    "number_node": 1,
+    "cpu_per_node": 64,
+    "queue_name": "normal",
+    "group_size": 50,
+    "custom_flags": [
+      "#SBATCH --exclusive",
+      "#SBATCH --exclude=node8,node20,node22,node26"
+    ],
+    "source_list": [
+      "/public/home/tangzc/intel/oneapi/setvars.sh"
+    ],
+    "envs": {
+      "LD_LIBRARY_PATH": "/public/home/tangzc/env/hdf5-1.12.1/lib"
+    }
+  }
+}
