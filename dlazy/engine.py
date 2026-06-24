@@ -34,12 +34,17 @@ class Workflow:
 
         if tmp_hash.is_dir():
             for std in tmp_hash.rglob("openmx.std"):
+                rel = std.relative_to(tmp_hash)
+                dst = work_dir / rel
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(std, dst)
+
                 if "normally finished" in std.read_text():
                     for h5 in std.parent.glob("hamiltonians_step*.h5"):
-                        rel = h5.relative_to(tmp_hash)
-                        dst = work_dir / rel
-                        dst.parent.mkdir(parents=True, exist_ok=True)
-                        shutil.copy2(h5, dst)
+                        rel_h5 = h5.relative_to(tmp_hash)
+                        dst_h5 = work_dir / rel_h5
+                        dst_h5.parent.mkdir(parents=True, exist_ok=True)
+                        shutil.copy2(h5, dst_h5)
             shutil.rmtree(tmp_hash, ignore_errors=True)
 
         record.remove(sub.submission_hash)
