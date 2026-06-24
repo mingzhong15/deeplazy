@@ -44,6 +44,7 @@ def load_machine(path):
     mcfg["deeph"] = deeph
 
     mcfg["job_name_prefix"] = cfg.get("job_name_prefix")
+    mcfg["backward_files"] = cfg.get("backward_files")
 
     return machine, resources, mcfg
 

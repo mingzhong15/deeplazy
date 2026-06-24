@@ -37,4 +37,6 @@
     "deeph_dir": "../co-opt-calc/inference/outputs"
   },
   "job_name_prefix": "lz"
+  ,
+  "backward_files": ["hamiltonians_step*.h5", "openmx.out", "*.dat"]
 }

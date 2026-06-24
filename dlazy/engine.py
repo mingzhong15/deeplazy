@@ -31,20 +31,26 @@ class Workflow:
         base = Path(self.param["_base"])
         work_dir = Path(self.param["work_dir"])
         tmp_hash = base / "tmp" / sub.submission_hash
+        patterns = self.mcfg.get("backward_files")
 
         if tmp_hash.is_dir():
             for std in tmp_hash.rglob("openmx.std"):
-                rel = std.relative_to(tmp_hash)
+                if "normally finished" not in std.read_text():
+                    continue
+                task_dir = std.parent
+                rel = task_dir.relative_to(tmp_hash)
                 dst = work_dir / rel
-                dst.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(std, dst)
+                dst.mkdir(parents=True, exist_ok=True)
 
-                if "normally finished" in std.read_text():
-                    for h5 in std.parent.glob("hamiltonians_step*.h5"):
-                        rel_h5 = h5.relative_to(tmp_hash)
-                        dst_h5 = work_dir / rel_h5
-                        dst_h5.parent.mkdir(parents=True, exist_ok=True)
-                        shutil.copy2(h5, dst_h5)
+                if patterns:
+                    for pat in patterns:
+                        for f in task_dir.glob(pat):
+                            shutil.move(str(f), str(dst / f.name))
+                else:
+                    for f in task_dir.iterdir():
+                        if f.name == "openmx.std":
+                            continue
+                        shutil.move(str(f), str(dst / f.name))
             shutil.rmtree(tmp_hash, ignore_errors=True)
 
         record.remove(sub.submission_hash)
