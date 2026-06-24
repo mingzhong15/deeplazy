@@ -43,6 +43,8 @@ def load_machine(path):
             deeph[key] = str((base / deeph[key]).resolve())
     mcfg["deeph"] = deeph
 
+    mcfg["job_name_prefix"] = cfg.get("job_name_prefix")
+
     return machine, resources, mcfg
 
 

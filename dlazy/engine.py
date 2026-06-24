@@ -9,6 +9,16 @@ class Workflow:
         self.machine, self.resources, self.mcfg = config.load_machine(machine_path)
         self.ctx = {}
 
+    def _set_job_name(self, step_name):
+        prefix = self.mcfg.get("job_name_prefix")
+        if not prefix:
+            return
+        job_name = f"{prefix}_{step_name}"
+        flags = list(self.resources.custom_flags) if self.resources.custom_flags else []
+        flags = [f for f in flags if not f.startswith("#SBATCH --job-name=")]
+        flags.append(f"#SBATCH --job-name={job_name}")
+        self.resources.custom_flags = flags
+
     def run(self, step_filter=None, dry_run=False):
         name = self.param.get("name", "workflow")
         step_defs = self.param.get("steps", [])
@@ -27,7 +37,9 @@ class Workflow:
                 continue
 
             step = steps.create_step(defn, self.param, self.mcfg, self.ctx)
-            print(f"--- Step {i+1}/{total_steps}: {step.name} ---")
+            pfx = self.mcfg.get("job_name_prefix")
+            label = f"{pfx}_{step.name}" if pfx else step.name
+            print(f"--- Step {i+1}/{total_steps}: {step.name} (job: {label}) ---")
 
             tasks = step.prepare()
             if not tasks:
@@ -42,6 +54,7 @@ class Workflow:
                     print(f"    [{t.task_work_path}] {t.command}")
                 continue
 
+            self._set_job_name(step.name)
             sub = Submission(
                 work_base=self.param["_base"],
                 machine=self.machine,

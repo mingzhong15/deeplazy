@@ -34,5 +34,6 @@
     "infer_toml": "infer.toml",
     "inputs_dir": "../restart-tight/inference/inputs",
     "deeph_dir": "../co-opt-calc/inference/outputs"
-  }
+  },
+  "job_name_prefix": "lz"
 }
