@@ -15,8 +15,9 @@ def read_structures(path, base=None):
                 continue
             p = Path(line)
             if not p.is_absolute():
-                p = (base / p).resolve()
-            result.append((p.stem, str(p)))
+                p = base / p
+            sid = p.stem
+            result.append((sid, str(p.resolve())))
     return result
 
 
