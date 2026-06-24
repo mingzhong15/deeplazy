@@ -30,7 +30,7 @@ class RestartSCFStep:
         if ctx_dir:
             return ctx_dir
 
-        outputs_base = Path(self.param["_base"]) / "inference" / "outputs"
+        outputs_base = Path(self.param["work_dir"]) / "inference" / "outputs"
         candidates = [str(outputs_base)]
         deeph_dir = self._get_software("deeph_dir")
         if deeph_dir:
@@ -39,15 +39,14 @@ class RestartSCFStep:
 
     def prepare(self):
         tasks = []
-        work_dir_rel = self.param.get("_work_dir_rel", "")
-        base = Path(self.param["_base"])
+        work_dir = Path(self.param["work_dir"])
         openmx_defaults = self.param.get("openmx", {})
 
         executable = self._get_software("executable", "openmx")
         data_path = self._get_software("data_path")
         module_path = self._get_software("module_path")
         mpi_cmd_tmpl = self._get_software("mpi_cmd", "mpirun -np {cpus}")
-        cpus = self.param.get("cpus_per_task", self.mcfg.get("resources", {}).get("cpus_per_task", 64))
+        cpus = self._get_software("cpus_per_task", 64)
 
         Gen = dlazy_config.resolve_openmx_generator(module_path)
         gen = Gen(data_path=data_path) if Gen and data_path else None
@@ -56,7 +55,7 @@ class RestartSCFStep:
         prev_results = self.ctx.get("_final_h")
 
         for sid, poscar in structures:
-            step_dir = base / work_dir_rel / "restart" / self.name / sid
+            step_dir = work_dir / "restart" / self.name / sid
             step_dir.mkdir(parents=True, exist_ok=True)
 
             std_path = step_dir / "openmx.std"
@@ -104,7 +103,7 @@ class RestartSCFStep:
                     pred_link.symlink_to(Path(src_path))
                     print(f"  link prev: {sid}/{self.name}")
 
-            work_path = Path(work_dir_rel) / "restart" / self.name / sid
+            work_path = Path("restart") / self.name / sid
             forward = ["openmx_in.dat"]
             if pred_link.is_symlink() or pred_link.exists():
                 forward.append("hamiltonian_pred.h5")
@@ -119,12 +118,11 @@ class RestartSCFStep:
         return tasks
 
     def collect(self):
-        work_dir_rel = self.param.get("_work_dir_rel", "")
-        base = Path(self.param["_base"])
+        work_dir = Path(self.param["work_dir"])
         structures = utils.read_structures(self.param["structures"])
         final_h = {}
         for sid, _ in structures:
-            step_dir = base / work_dir_rel / "restart" / self.name / sid
+            step_dir = work_dir / "restart" / self.name / sid
             h = utils.find_final_hamiltonian(step_dir)
             if h:
                 final_h[sid] = h

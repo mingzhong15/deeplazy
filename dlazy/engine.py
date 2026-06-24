@@ -1,4 +1,8 @@
+import shutil
+from pathlib import Path
+
 from dpdispatcher import Submission
+from dpdispatcher.utils.record import record
 
 from . import config, steps
 
@@ -9,6 +13,10 @@ class Workflow:
         self.machine, self.resources, self.mcfg = config.load_machine(machine_path)
         self.ctx = {}
 
+        base = Path(self.param["_base"])
+        record.record_directory = base / ".dpdispatcher" / "submission"
+        record.record_directory.mkdir(parents=True, exist_ok=True)
+
     def _set_job_name(self, step_name):
         prefix = self.mcfg.get("job_name_prefix")
         if not prefix:
@@ -18,6 +26,13 @@ class Workflow:
         flags = [f for f in flags if not f.startswith("#SBATCH --job-name=")]
         flags.append(f"#SBATCH --job-name={job_name}")
         self.resources.custom_flags = flags
+
+    def _cleanup_step(self, sub):
+        work_dir = Path(self.param["work_dir"])
+        tmp_hash = work_dir / "tmp" / sub.submission_hash
+        if tmp_hash.is_dir():
+            shutil.rmtree(tmp_hash, ignore_errors=True)
+        record.remove(sub.submission_hash)
 
     def run(self, step_filter=None, dry_run=False):
         name = self.param.get("name", "workflow")
@@ -54,14 +69,19 @@ class Workflow:
                     print(f"    [{t.task_work_path}] {t.command}")
                 continue
 
+            work_dir = Path(self.param["work_dir"])
+            self.machine.context.temp_remote_root = str(work_dir / "tmp")
+            self.machine.context.temp_local_root = str(work_dir)
+
             self._set_job_name(step.name)
             sub = Submission(
-                work_base=self.param["_base"],
+                work_base=".",
                 machine=self.machine,
                 resources=self.resources,
                 task_list=tasks,
             )
             sub.run_submission()
+            self._cleanup_step(sub)
             print(f"  Step {step.name} complete")
             step.collect()
 

@@ -1,4 +1,3 @@
-import shutil
 from pathlib import Path
 
 from dpdispatcher import Task
@@ -20,7 +19,7 @@ class InferStep:
         self.name = defn["name"]
 
     def prepare(self):
-        base = Path(self.param["_base"])
+        work_dir = Path(self.param["work_dir"])
         deeph = self.mcfg.get("deeph", {})
         executable = deeph.get("executable", "deepx")
         infer_toml_src = deeph.get("infer_toml")
@@ -33,7 +32,7 @@ class InferStep:
             print(f"  WARNING: infer.toml not found: {infer_toml_src}")
             return []
 
-        infer_dir = base / "inference"
+        infer_dir = work_dir / "inference"
         outputs_dir = infer_dir / "outputs"
         outputs_dir.mkdir(parents=True, exist_ok=True)
 
@@ -62,17 +61,15 @@ class InferStep:
         toml_text = toml_text.replace("{outputs_dir}", str(outputs_dir))
         toml_text = toml_text.replace("{model_dir}", model_dir)
 
-        task_toml = base / "_infer.toml"
+        task_toml = work_dir / "_infer.toml"
         task_toml.write_text(toml_text)
         print(f"  gen: _infer.toml (model={model_dir})")
-
-        rel_inputs = local_inputs.relative_to(base) if local_inputs.exists() else None
 
         forward = ["_infer.toml"]
         if local_inputs.exists() and local_inputs.is_symlink():
             target = local_inputs.resolve()
             if target.exists():
-                forward.append(str(local_inputs.relative_to(base)))
+                forward.append(str(local_inputs.relative_to(work_dir)))
 
         tasks = [Task(
             command=f"{executable} infer _infer.toml",
@@ -84,7 +81,7 @@ class InferStep:
         return tasks
 
     def collect(self):
-        outputs_dir = Path(self.param["_base"]) / "inference" / "outputs"
+        outputs_dir = Path(self.param["work_dir"]) / "inference" / "outputs"
         latest = config.find_latest_deeph_dir([str(outputs_dir)])
         if latest:
             self.ctx["_deeph_dir"] = latest
