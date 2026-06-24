@@ -111,7 +111,7 @@ class RestartSCFStep:
                 command=utils.make_mpi_cmd(mpi_cmd_tmpl, executable, cpus),
                 task_work_path=str(work_path),
                 forward_files=forward,
-                backward_files=["openmx.std"],
+                backward_files=["openmx.std", "hamiltonians_step*.h5"],
                 outlog="openmx.out",
             ))
 

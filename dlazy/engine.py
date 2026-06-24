@@ -91,9 +91,11 @@ class Workflow:
                 resources=self.resources,
                 task_list=tasks,
             )
-            sub.run_submission()
+            try:
+                sub.run_submission()
+            except FileNotFoundError:
+                print(f"  WARNING: some .h5 missing (SCF not converged for some structures)")
             self._cleanup_step(sub)
-            print(f"  Step {step.name} complete")
             step.collect()
 
         print()
