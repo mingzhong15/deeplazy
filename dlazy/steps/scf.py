@@ -63,24 +63,22 @@ class RestartSCFStep:
                 print(f"  skip (done): {sid}/{self.name}")
                 continue
 
-            inp = step_dir / "openmx_in.dat"
-            if not inp.exists():
-                if gen:
-                    gen.generate(str(poscar), output_dir=str(step_dir),
-                                 max_iter=self._get_openmx("max_iter", 200),
-                                 mixing_type=self._get_openmx("mixing_type", "RMM-DIISH"),
-                                 scf_criterion=self._get_openmx("scf_criterion", 1e-6),
-                                 startpulay=self._get_openmx("startpulay",
-                                                              openmx_defaults.get("startpulay", 3)),
-                                 mixing_history=self._get_openmx("mixing_history",
-                                                                 openmx_defaults.get("mixing_history", 30)),
-                                 init_mixing_weight=openmx_defaults.get("init_mixing_weight", 0.3),
-                                 max_mixing_weight=openmx_defaults.get("max_mixing_weight", 0.8),
-                                 detailed_output=openmx_defaults.get("detailed_output", True),
-                                 step1_mix_h=openmx_defaults.get("step1_mix_h", False))
-                    print(f"  gen: {sid}/{self.name}")
-                else:
-                    print(f"  WARNING: no generator for {sid}/{self.name}")
+            if gen:
+                gen.generate(str(poscar), output_dir=str(step_dir),
+                             max_iter=self._get_openmx("max_iter", 200),
+                             mixing_type=self._get_openmx("mixing_type", "RMM-DIISH"),
+                             scf_criterion=self._get_openmx("scf_criterion", 1e-6),
+                             startpulay=self._get_openmx("startpulay",
+                                                          openmx_defaults.get("startpulay", 3)),
+                             mixing_history=self._get_openmx("mixing_history",
+                                                             openmx_defaults.get("mixing_history", 30)),
+                             init_mixing_weight=openmx_defaults.get("init_mixing_weight", 0.3),
+                             max_mixing_weight=openmx_defaults.get("max_mixing_weight", 0.8),
+                             detailed_output=openmx_defaults.get("detailed_output", True),
+                             step1_mix_h=openmx_defaults.get("step1_mix_h", False))
+                print(f"  gen: {sid}/{self.name}")
+            else:
+                print(f"  WARNING: no generator for {sid}/{self.name}")
 
             pred_link = step_dir / "hamiltonian_pred.h5"
             init_source = self.defn.get("init_from", "deeph")
