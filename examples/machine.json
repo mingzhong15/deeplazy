@@ -20,7 +20,8 @@
     ],
     "envs": {
       "LD_LIBRARY_PATH": "/public/home/tangzc/env/hdf5-1.12.1/lib:${LD_LIBRARY_PATH}"
-    }
+    },
+    "prepend_script": ["ulimit -l unlimited"]
   },
   "openmx": {
     "executable": "/public/home/mind/software/openmx/3.9.9_devel/openmx",
