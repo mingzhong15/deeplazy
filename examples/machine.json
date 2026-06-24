@@ -19,7 +19,7 @@
       "/public/home/tangzc/intel/oneapi/setvars.sh"
     ],
     "envs": {
-      "LD_LIBRARY_PATH": "/public/home/tangzc/env/hdf5-1.12.1/lib"
+      "LD_LIBRARY_PATH": "/public/home/tangzc/env/hdf5-1.12.1/lib:${LD_LIBRARY_PATH}"
     }
   },
   "openmx": {
