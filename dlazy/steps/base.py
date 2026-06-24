@@ -5,9 +5,10 @@ class Step(ABC):
     name: str = ""
     type: str = ""
 
-    def __init__(self, defn, param, ctx):
+    def __init__(self, defn, param, mcfg, ctx):
         self.defn = defn
         self.param = param
+        self.mcfg = mcfg
         self.ctx = ctx
         self.name = defn["name"]
 

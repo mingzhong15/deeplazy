@@ -21,5 +21,18 @@
     "envs": {
       "LD_LIBRARY_PATH": "/public/home/tangzc/env/hdf5-1.12.1/lib"
     }
+  },
+  "openmx": {
+    "executable": "/public/home/mind/software/openmx/3.9.9_devel/openmx",
+    "data_path": "/public/home/mind/software/openmx/DFT_DATA19",
+    "mpi_cmd": "mpirun -np {cpus}",
+    "module_path": "../co-opt-calc",
+    "cpus_per_task": 64
+  },
+  "deeph": {
+    "executable": "/public/home/mind/software/uv-env/deeph-1.2.6/bin/deepx",
+    "infer_toml": "infer.toml",
+    "inputs_dir": "../restart-tight/inference/inputs",
+    "deeph_dir": "../co-opt-calc/inference/outputs"
   }
 }

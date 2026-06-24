@@ -11,11 +11,11 @@ def register_step(type_name):
     return decorator
 
 
-def create_step(defn, param, ctx):
+def create_step(defn, param, mcfg, ctx):
     type_name = defn.get("type")
     if type_name not in _registry:
         raise ValueError(f"Unknown step type: {type_name}. Available: {list(_registry)}")
-    return _registry[type_name](defn, param, ctx)
+    return _registry[type_name](defn, param, mcfg, ctx)
 
 
-from . import scf
+from . import scf, infer

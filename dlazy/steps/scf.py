@@ -2,9 +2,9 @@ from pathlib import Path
 
 from dpdispatcher import Task
 
+from .. import config as dlazy_config
 from .. import utils
 from . import register_step
-from ..config import resolve_openmx_generator
 
 
 @register_step("scf")
@@ -12,32 +12,51 @@ class RestartSCFStep:
     name: str = ""
     type: str = "scf"
 
-    def __init__(self, defn, param, ctx):
+    def __init__(self, defn, param, mcfg, ctx):
         self.defn = defn
         self.param = param
+        self.mcfg = mcfg
         self.ctx = ctx
         self.name = defn["name"]
 
+    def _get_openmx(self, key, default=None):
+        return self.defn.get(key, self.param.get("openmx", {}).get(key, default))
+
+    def _get_software(self, key, default=None):
+        return self.mcfg.get("openmx", {}).get(key, default)
+
+    def _resolve_deeph_dir(self):
+        ctx_dir = self.ctx.get("_deeph_dir")
+        if ctx_dir:
+            return ctx_dir
+
+        outputs_base = Path(self.param["_base"]) / "inference" / "outputs"
+        candidates = [str(outputs_base)]
+        deeph_dir = self._get_software("deeph_dir")
+        if deeph_dir:
+            candidates.insert(0, deeph_dir)
+        return dlazy_config.find_latest_deeph_dir(candidates)
+
     def prepare(self):
         tasks = []
-        structures = utils.read_structures(
-            self.param["structures"],
-            base=self.param.get("structures_base"),
-        )
-        openmx_cfg = self.param.get("openmx", {})
-        exe = openmx_cfg["executable"]
-        work_dir = Path(self.param["work_dir"])
-        calc_type = openmx_cfg.get("calc_type", "restart")
-        cpus = self.param.get("cpus_per_task", 64)
-        mpi_cmd_tmpl = self.param.get("mpi_cmd", "mpirun -np {cpus}")
+        work_dir_rel = self.param.get("_work_dir_rel", "")
+        base = Path(self.param["_base"])
+        openmx_defaults = self.param.get("openmx", {})
 
-        Gen = resolve_openmx_generator(self.param)
-        gen = Gen(data_path=openmx_cfg["data_path"]) if Gen else None
+        executable = self._get_software("executable", "openmx")
+        data_path = self._get_software("data_path")
+        module_path = self._get_software("module_path")
+        mpi_cmd_tmpl = self._get_software("mpi_cmd", "mpirun -np {cpus}")
+        cpus = self.param.get("cpus_per_task", self.mcfg.get("resources", {}).get("cpus_per_task", 64))
 
+        Gen = dlazy_config.resolve_openmx_generator(module_path)
+        gen = Gen(data_path=data_path) if Gen and data_path else None
+
+        structures = utils.read_structures(self.param["structures"])
         prev_results = self.ctx.get("_final_h")
 
         for sid, poscar in structures:
-            step_dir = work_dir / calc_type / sid / self.name
+            step_dir = base / work_dir_rel / "restart" / self.name / sid
             step_dir.mkdir(parents=True, exist_ok=True)
 
             std_path = step_dir / "openmx.std"
@@ -49,26 +68,26 @@ class RestartSCFStep:
             if not inp.exists():
                 if gen:
                     gen.generate(str(poscar), output_dir=str(step_dir),
-                                 max_iter=openmx_cfg.get("max_iter", 200),
-                                 mixing_type=openmx_cfg.get("mixing_type", "RMM-DIISH"),
-                                 scf_criterion=self.defn.get("scf_criterion", 1e-6),
-                                 startpulay=self.defn.get("startpulay",
-                                                           openmx_cfg.get("startpulay", 3)),
-                                 mixing_history=self.defn.get("mixing_history",
-                                                              openmx_cfg.get("mixing_history", 30)),
-                                 init_mixing_weight=openmx_cfg.get("init_mixing_weight", 0.3),
-                                 max_mixing_weight=openmx_cfg.get("max_mixing_weight", 0.8),
-                                 detailed_output=openmx_cfg.get("detailed_output", True),
-                                 step1_mix_h=openmx_cfg.get("step1_mix_h", False))
+                                 max_iter=self._get_openmx("max_iter", 200),
+                                 mixing_type=self._get_openmx("mixing_type", "RMM-DIISH"),
+                                 scf_criterion=self._get_openmx("scf_criterion", 1e-6),
+                                 startpulay=self._get_openmx("startpulay",
+                                                              openmx_defaults.get("startpulay", 3)),
+                                 mixing_history=self._get_openmx("mixing_history",
+                                                                 openmx_defaults.get("mixing_history", 30)),
+                                 init_mixing_weight=openmx_defaults.get("init_mixing_weight", 0.3),
+                                 max_mixing_weight=openmx_defaults.get("max_mixing_weight", 0.8),
+                                 detailed_output=openmx_defaults.get("detailed_output", True),
+                                 step1_mix_h=openmx_defaults.get("step1_mix_h", False))
                     print(f"  gen: {sid}/{self.name}")
                 else:
-                    print(f"  WARNING: no generator for {sid}/{self.name}, must create openmx_in.dat manually")
+                    print(f"  WARNING: no generator for {sid}/{self.name}")
 
-            init_source = self.defn.get("init_from", "deeph")
             pred_link = step_dir / "hamiltonian_pred.h5"
+            init_source = self.defn.get("init_from", "deeph")
 
             if init_source == "deeph":
-                deeph_dir = openmx_cfg.get("deeph_dir")
+                deeph_dir = self._resolve_deeph_dir()
                 if deeph_dir:
                     src = Path(deeph_dir) / sid / "hamiltonian_pred.h5"
                     if src.exists():
@@ -85,11 +104,14 @@ class RestartSCFStep:
                     pred_link.symlink_to(Path(src_path))
                     print(f"  link prev: {sid}/{self.name}")
 
-            rel_path = step_dir.relative_to(work_dir)
+            work_path = Path(work_dir_rel) / "restart" / self.name / sid
+            forward = ["openmx_in.dat"]
+            if pred_link.is_symlink() or pred_link.exists():
+                forward.append("hamiltonian_pred.h5")
             tasks.append(Task(
-                command=utils.make_mpi_cmd(mpi_cmd_tmpl, exe, cpus),
-                task_work_path=str(rel_path),
-                forward_files=["openmx_in.dat"],
+                command=utils.make_mpi_cmd(mpi_cmd_tmpl, executable, cpus),
+                task_work_path=str(work_path),
+                forward_files=forward,
                 backward_files=["openmx.std", "hamiltonians_step*.h5"],
                 outlog="openmx.out",
             ))
@@ -97,15 +119,12 @@ class RestartSCFStep:
         return tasks
 
     def collect(self):
-        structures = utils.read_structures(
-            self.param["structures"],
-            base=self.param.get("structures_base"),
-        )
-        work_dir = Path(self.param["work_dir"])
-        calc_type = self.param.get("openmx", {}).get("calc_type", "restart")
+        work_dir_rel = self.param.get("_work_dir_rel", "")
+        base = Path(self.param["_base"])
+        structures = utils.read_structures(self.param["structures"])
         final_h = {}
         for sid, _ in structures:
-            step_dir = work_dir / calc_type / sid / self.name
+            step_dir = base / work_dir_rel / "restart" / self.name / sid
             h = utils.find_final_hamiltonian(step_dir)
             if h:
                 final_h[sid] = h
