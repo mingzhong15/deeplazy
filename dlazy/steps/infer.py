@@ -6,6 +6,82 @@ from . import register_step
 from .. import config
 
 
+# ── TOML helpers ──────────────────────────────────────────────────────────────
+
+def _toml_value(v):
+    if isinstance(v, bool):
+        return "true" if v else "false"
+    if isinstance(v, str):
+        return f'"{v}"'
+    if isinstance(v, (int, float)):
+        return str(v)
+    if isinstance(v, list):
+        items = ", ".join(_toml_value(x) for x in v)
+        return f"[{items}]"
+    return str(v)
+
+
+def _dict_to_toml(d, prefix=""):
+    lines = []
+    has_leaf = any(not isinstance(v, dict) for v in d.values())
+    if prefix and has_leaf:
+        lines.append(f"[{prefix}]")
+    for key, value in d.items():
+        if isinstance(value, dict):
+            sub = f"{prefix}.{key}" if prefix else key
+            lines.append(_dict_to_toml(value, sub))
+        else:
+            lines.append(f"{key} = {_toml_value(value)}")
+    return "\n".join(lines)
+
+
+def generate_infer_toml(*, inputs_dir, outputs_dir, model_dir,
+                        workflow_name="workflow", deeph=None):
+    deeph = deeph or {}
+    cfg = {
+        "system": {
+            "note": f"dlazy: {workflow_name}",
+            "device": deeph.get("device", "cpu"),
+            "float_type": deeph.get("float_type", "fp32"),
+            "random_seed": deeph.get("random_seed", 137),
+            "log_level": deeph.get("log_level", "info"),
+            "jax_memory_preallocate": False,
+        },
+        "data": {
+            "inputs_dir": inputs_dir,
+            "outputs_dir": outputs_dir,
+            "dft": {"data_dir_depth": 0},
+            "graph": {
+                "dataset_name": workflow_name.upper(),
+                "graph_type": "HS",
+                "storage_type": "disk",
+                "disk_shards_num": 1,
+                "disk_shards_indices": [],
+                "disk_mem_buffer_size": 2048,
+                "parallel_num": -1,
+                "only_save_graph": False,
+            },
+        },
+        "model": {
+            "model_dir": model_dir,
+            "load_model_type": "best",
+            "load_model_epoch": -1,
+        },
+        "process": {
+            "infer": {
+                "output_type": "h5",
+                "output_into": "to_output",
+                "target_symmetrize": True,
+                "multi_way_jit_num": deeph.get("jit_num", 4),
+                "dataloader": {"batch_size": deeph.get("batch_size", 1)},
+            },
+        },
+    }
+    return _dict_to_toml(cfg)
+
+
+# ── Step ──────────────────────────────────────────────────────────────────────
+
 @register_step("infer")
 class InferStep:
     name: str = ""
@@ -18,19 +94,39 @@ class InferStep:
         self.ctx = ctx
         self.name = defn["name"]
 
+    def _resolve_model_dir(self):
+        model = self.param.get("deeph_model")
+        if not model:
+            return None
+        return str(Path(model).resolve())
+
+    def _get_infer_toml(self, work_dir, local_inputs, outputs_dir, model_dir):
+        deeph = self.mcfg.get("deeph", {})
+        src = deeph.get("infer_toml")
+
+        # Stage 1: explicit infer.toml file with placeholders
+        if src:
+            src_path = Path(src)
+            if src_path.exists():
+                text = src_path.read_text()
+                text = text.replace("{inputs_dir}", str(local_inputs.resolve()))
+                text = text.replace("{outputs_dir}", str(outputs_dir))
+                text = text.replace("{model_dir}", model_dir)
+                return text
+
+        # Stage 2: auto‑generate from parameters
+        return generate_infer_toml(
+            inputs_dir=str(local_inputs.resolve()),
+            outputs_dir=str(outputs_dir),
+            model_dir=model_dir,
+            workflow_name=self.param.get("name", "workflow"),
+            deeph=deeph,
+        )
+
     def prepare(self):
         work_dir = Path(self.param["work_dir"])
         deeph = self.mcfg.get("deeph", {})
         executable = deeph.get("executable", "deepx")
-        infer_toml_src = deeph.get("infer_toml")
-        if not infer_toml_src:
-            print("  WARNING: deeph.infer_toml not set in machine.json")
-            return []
-
-        infer_toml_src = Path(infer_toml_src)
-        if not infer_toml_src.exists():
-            print(f"  WARNING: infer.toml not found: {infer_toml_src}")
-            return []
 
         infer_dir = work_dir / "inference"
         outputs_dir = infer_dir / "outputs"
@@ -49,18 +145,12 @@ class InferStep:
                 local_inputs.symlink_to(src, target_is_directory=True)
                 print(f"  link inputs: {local_inputs} -> {src}")
 
-        model_dir = self.param.get("deeph_model")
-        if model_dir:
-            model_dir = str(Path(model_dir).resolve())
-        else:
+        model_dir = self._resolve_model_dir()
+        if model_dir is None:
             print("  WARNING: deeph_model not set in param.json")
             return []
 
-        toml_text = infer_toml_src.read_text()
-        toml_text = toml_text.replace("{inputs_dir}", str(local_inputs.resolve()))
-        toml_text = toml_text.replace("{outputs_dir}", str(outputs_dir))
-        toml_text = toml_text.replace("{model_dir}", model_dir)
-
+        toml_text = self._get_infer_toml(work_dir, local_inputs, outputs_dir, model_dir)
         task_toml = work_dir / "_infer.toml"
         task_toml.write_text(toml_text)
         print(f"  gen: _infer.toml (model={model_dir})")

@@ -34,7 +34,13 @@
     "executable": "/public/home/mind/software/uv-env/deeph-1.2.6/bin/deepx",
     "infer_toml": "infer.toml",
     "inputs_dir": "../restart-tight/inference/inputs",
-    "deeph_dir": "../co-opt-calc/inference/outputs"
+    "deeph_dir": "../co-opt-calc/inference/outputs",
+    "device": "cpu",
+    "float_type": "fp32",
+    "batch_size": 1,
+    "jit_num": 4,
+    "log_level": "info",
+    "random_seed": 137
   },
   "job_name_prefix": "lz"
   ,
