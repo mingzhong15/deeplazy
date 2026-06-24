@@ -25,6 +25,9 @@ class RestartSCFStep:
     def _get_software(self, key, default=None):
         return self.mcfg.get("openmx", {}).get(key, default)
 
+    def _get_deeph(self, key, default=None):
+        return self.mcfg.get("deeph", {}).get(key, default)
+
     def _resolve_deeph_dir(self):
         ctx_dir = self.ctx.get("_deeph_dir")
         if ctx_dir:
@@ -32,7 +35,7 @@ class RestartSCFStep:
 
         outputs_base = Path(self.param["work_dir"]) / "inference" / "outputs"
         candidates = [str(outputs_base)]
-        deeph_dir = self._get_software("deeph_dir")
+        deeph_dir = self._get_deeph("deeph_dir")
         if deeph_dir:
             candidates.insert(0, deeph_dir)
         return dlazy_config.find_latest_deeph_dir(candidates)
