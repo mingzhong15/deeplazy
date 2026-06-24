@@ -28,10 +28,20 @@ class Workflow:
         self.resources.custom_flags = flags
 
     def _cleanup_step(self, sub):
+        base = Path(self.param["_base"])
         work_dir = Path(self.param["work_dir"])
-        tmp_hash = work_dir / "tmp" / sub.submission_hash
+        tmp_hash = base / "tmp" / sub.submission_hash
+
         if tmp_hash.is_dir():
+            for std in tmp_hash.rglob("openmx.std"):
+                if "normally finished" in std.read_text():
+                    for h5 in std.parent.glob("hamiltonians_step*.h5"):
+                        rel = h5.relative_to(tmp_hash)
+                        dst = work_dir / rel
+                        dst.parent.mkdir(parents=True, exist_ok=True)
+                        shutil.copy2(h5, dst)
             shutil.rmtree(tmp_hash, ignore_errors=True)
+
         record.remove(sub.submission_hash)
 
     def run(self, step_filter=None, dry_run=False):
@@ -69,8 +79,9 @@ class Workflow:
                     print(f"    [{t.task_work_path}] {t.command}")
                 continue
 
+            base = Path(self.param["_base"])
             work_dir = Path(self.param["work_dir"])
-            self.machine.context.temp_remote_root = str(work_dir / "tmp")
+            self.machine.context.temp_remote_root = str(base / "tmp")
             self.machine.context.temp_local_root = str(work_dir)
 
             self._set_job_name(step.name)
