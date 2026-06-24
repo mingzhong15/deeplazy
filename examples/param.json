@@ -2,7 +2,6 @@
   "name": "al_coopt_300K",
   "structures": "structures.txt",
   "work_dir": "datasets/al",
-  "deeph_model": "../co-opt-calc/models/albatross-exp40k/model",
   "openmx": {
     "calc_type": "restart",
     "max_iter": 200,
@@ -17,7 +16,10 @@
   "steps": [
     {
       "name": "infer",
-      "type": "infer"
+      "type": "deeph",
+      "model": "../models/albatross-exp40k/model",
+      "inputs_dir": "../restart-tight/inference/inputs",
+      "deeph_dir": "../co-opt-calc/inference/outputs"
     },
     {
       "name": "e6",

@@ -33,11 +33,15 @@ class RestartSCFStep:
         if ctx_dir:
             return ctx_dir
 
+        candidates = []
+
+        for s in self.param.get("steps", []):
+            if s.get("type") == "deeph" and s.get("deeph_dir"):
+                d = str((Path(self.param["_base"]) / s["deeph_dir"]).resolve())
+                candidates.append(d)
+
         outputs_base = Path(self.param["work_dir"]) / "inference" / "outputs"
-        candidates = [str(outputs_base)]
-        deeph_dir = self._get_deeph("deeph_dir")
-        if deeph_dir:
-            candidates.insert(0, deeph_dir)
+        candidates.append(str(outputs_base))
         return dlazy_config.find_latest_deeph_dir(candidates)
 
     def prepare(self):

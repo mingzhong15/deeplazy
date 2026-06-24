@@ -82,10 +82,10 @@ def generate_infer_toml(*, inputs_dir, outputs_dir, model_dir,
 
 # ── Step ──────────────────────────────────────────────────────────────────────
 
-@register_step("infer")
-class InferStep:
+@register_step("deeph")
+class DeepHStep:
     name: str = ""
-    type: str = "infer"
+    type: str = "deeph"
 
     def __init__(self, defn, param, mcfg, ctx):
         self.defn = defn
@@ -94,17 +94,16 @@ class InferStep:
         self.ctx = ctx
         self.name = defn["name"]
 
-    def _resolve_model_dir(self):
-        model = self.param.get("deeph_model")
-        if not model:
+    def _resolve(self, key):
+        val = self.defn.get(key)
+        if not val:
             return None
-        return str(Path(model).resolve())
+        return str((Path(self.param["_base"]) / val).resolve())
 
     def _get_infer_toml(self, work_dir, local_inputs, outputs_dir, model_dir):
         deeph = self.mcfg.get("deeph", {})
         src = deeph.get("infer_toml")
 
-        # Stage 1: explicit infer.toml file with placeholders
         if src:
             src_path = Path(src)
             if src_path.exists():
@@ -114,7 +113,6 @@ class InferStep:
                 text = text.replace("{model_dir}", model_dir)
                 return text
 
-        # Stage 2: auto‑generate from parameters
         return generate_infer_toml(
             inputs_dir=str(local_inputs.resolve()),
             outputs_dir=str(outputs_dir),
@@ -137,7 +135,7 @@ class InferStep:
             print(f"  skip (done): inference already available at {latest}")
             return []
 
-        inputs_dir = deeph.get("inputs_dir")
+        inputs_dir = self._resolve("inputs_dir")
         local_inputs = infer_dir / "inputs"
         if inputs_dir and not local_inputs.exists():
             src = Path(inputs_dir)
@@ -145,9 +143,9 @@ class InferStep:
                 local_inputs.symlink_to(src, target_is_directory=True)
                 print(f"  link inputs: {local_inputs} -> {src}")
 
-        model_dir = self._resolve_model_dir()
+        model_dir = self._resolve("model")
         if model_dir is None:
-            print("  WARNING: deeph_model not set in param.json")
+            print("  WARNING: step.defn.model not set in param.json")
             return []
 
         toml_text = self._get_infer_toml(work_dir, local_inputs, outputs_dir, model_dir)

@@ -32,9 +32,6 @@
   },
   "deeph": {
     "executable": "/public/home/mind/software/uv-env/deeph-1.2.6/bin/deepx",
-    "infer_toml": "infer.toml",
-    "inputs_dir": "../restart-tight/inference/inputs",
-    "deeph_dir": "../co-opt-calc/inference/outputs",
     "device": "cpu",
     "float_type": "fp32",
     "batch_size": 1,
