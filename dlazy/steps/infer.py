@@ -165,7 +165,7 @@ class InferStep:
             command=f"{executable} infer _infer.toml",
             task_work_path=".",
             forward_files=forward,
-            backward_files=["inference/outputs"],
+            backward_files=["inference/outputs/*/dft/**", "inference/outputs/*/deepx.log"],
             outlog="infer.out",
         )]
         return tasks
