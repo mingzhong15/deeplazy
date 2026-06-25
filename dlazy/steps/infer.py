@@ -4,6 +4,7 @@ from dpdispatcher import Task
 
 from . import register_step
 from .. import config
+from .. import utils
 
 
 # ── TOML helpers ──────────────────────────────────────────────────────────────
@@ -130,10 +131,25 @@ class DeepHStep:
         outputs_dir = infer_dir / "outputs"
         outputs_dir.mkdir(parents=True, exist_ok=True)
 
+        force = self.defn.get("force", False)
         latest = config.find_latest_deeph_dir([str(outputs_dir)])
-        if latest:
-            print(f"  skip (done): inference already available at {latest}")
-            return []
+
+        if force:
+            print("  force: re-running inference (force=True)")
+            latest = None
+        elif latest:
+            structures = utils.read_structures(self.param["structures"])
+            needed = {sid for sid, _ in structures}
+            existing = {p.parent.name for p in Path(latest).glob("*/hamiltonian_pred.h5")}
+            missing = needed - existing
+
+            if missing:
+                print(f"  partial: {len(existing)}/{len(needed)} structures done, "
+                      f"{len(missing)} missing, re-running inference")
+                latest = None
+            else:
+                print(f"  skip (done): inference already available at {latest}")
+                return []
 
         inputs_dir = self._resolve("inputs_dir")
         local_inputs = infer_dir / "inputs"
