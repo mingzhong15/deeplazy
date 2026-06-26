@@ -8,7 +8,7 @@ from . import register_step
 
 
 @register_step("scf")
-class RestartSCFStep:
+class SCFStep:
     name: str = ""
     type: str = "scf"
 
@@ -36,7 +36,7 @@ class RestartSCFStep:
         candidates = []
 
         for s in self.param.get("steps", []):
-            if s.get("type") == "deeph" and s.get("deeph_dir"):
+            if s.get("type") in ("deeph",) and s.get("deeph_dir"):
                 d = str((Path(self.param["_base"]) / s["deeph_dir"]).resolve())
                 candidates.append(d)
 
@@ -44,7 +44,7 @@ class RestartSCFStep:
         candidates.append(str(outputs_base))
         return dlazy_config.find_latest_deeph_dir(candidates)
 
-    def prepare(self):
+    def _prepare(self, check_pred):
         tasks = []
         work_dir = Path(self.param["work_dir"])
         openmx_defaults = self.param.get("openmx", {})
@@ -60,7 +60,6 @@ class RestartSCFStep:
 
         structures = utils.read_structures(self.param["structures"])
         prev_results = self.ctx.get("_final_h")
-        no_deeph = 0
 
         for sid, poscar in structures:
             step_dir = work_dir / "restart" / self.name / sid
@@ -98,18 +97,22 @@ class RestartSCFStep:
             if init_source == "deeph":
                 deeph_dir = self._resolve_deeph_dir()
                 if not deeph_dir:
-                    print(f"  ERROR: no inference output dir, cannot initialize {sid}/{self.name}")
-                    no_deeph += 1
-                    continue
-                src = Path(deeph_dir) / sid / "hamiltonian_pred.h5"
-                if not src.exists():
-                    print(f"  ERROR: {src} not found, cannot initialize {sid}/{self.name}")
-                    no_deeph += 1
-                    continue
-                if pred_link.is_symlink() or pred_link.exists():
-                    pred_link.unlink()
-                pred_link.symlink_to(src)
-                print(f"  link deeph: {sid}/{self.name}")
+                    if check_pred:
+                        print(f"  ERROR: no inference output dir, cannot initialize {sid}/{self.name}")
+                        continue
+                    print(f"  WARNING: no inference output dir for {sid}/{self.name}, cold-start SCF")
+                else:
+                    src = Path(deeph_dir) / sid / "hamiltonian_pred.h5"
+                    if not src.exists():
+                        if check_pred:
+                            print(f"  ERROR: {src} not found, cannot initialize {sid}/{self.name}")
+                            continue
+                        print(f"  WARNING: {src} not found for {sid}/{self.name}, cold-start SCF")
+                    else:
+                        if pred_link.is_symlink() or pred_link.exists():
+                            pred_link.unlink()
+                        pred_link.symlink_to(src)
+                        print(f"  link deeph: {sid}/{self.name}")
 
             elif init_source == "prev" and prev_results:
                 src_path = prev_results.get(sid)
@@ -131,10 +134,10 @@ class RestartSCFStep:
                 outlog="openmx.out",
             ))
 
-        if no_deeph:
-            print(f"  ERROR: {no_deeph} structures have no DeepH prediction, cannot run cold-start SCF")
-
         return tasks
+
+    def prepare(self):
+        return self._prepare(check_pred=False)
 
     def collect(self):
         work_dir = Path(self.param["work_dir"])
@@ -148,3 +151,9 @@ class RestartSCFStep:
         self.ctx["_final_h"] = final_h
         self.ctx[f"_final_h_{self.name}"] = final_h
         utils.print_progress_bar(len(final_h), len(structures), self.name)
+
+
+@register_step("scf-restart")
+class SCFRestartStep(SCFStep):
+    def prepare(self):
+        return self._prepare(check_pred=True)

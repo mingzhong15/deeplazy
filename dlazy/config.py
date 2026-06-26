@@ -33,11 +33,9 @@ def load_machine(path):
     mcfg = {}
     for section in ("olp", "infer", "fp"):
         sec = dict(cfg.get(section, {}))
-        for key in ("executable", "mpi_cmd", "data_path", "module_path", "infer_toml"):
+        for key in ("executable", "data_path", "module_path", "infer_toml"):
             if key in sec:
                 sec[key] = str((base / sec[key]).resolve())
-            elif key == "mpi_cmd" and "mpi_cmd" not in sec:
-                pass  # optional
         mcfg[section] = sec
 
     mcfg["job_name_prefix"] = cfg.get("job_name_prefix")
