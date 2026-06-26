@@ -30,7 +30,7 @@ class Workflow:
     def _cleanup_step(self, sub, step_name=None):
         base = Path(self.param["_base"])
         work_dir = Path(self.param["work_dir"])
-        tmp_hash = base / "tmp" / sub.submission_hash
+        tmp_hash = base / "tmp" / step_name / sub.submission_hash if step_name else base / "tmp" / sub.submission_hash
         patterns = self.mcfg.get(step_name, {}).get("backward_files") if step_name else None
 
         if tmp_hash.is_dir():
