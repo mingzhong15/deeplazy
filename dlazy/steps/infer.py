@@ -158,7 +158,7 @@ class DeepHStep:
         if local_inputs.is_symlink() or local_inputs.is_file():
             local_inputs.unlink()
         elif local_inputs.exists():
-            subprocess.run(["rm", "-rf", str(local_inputs)], check=True)
+            subprocess.run(["rm", "-rf", str(local_inputs)])
         local_inputs.mkdir(parents=True, exist_ok=True)
 
         for sid, poscar in structures:
