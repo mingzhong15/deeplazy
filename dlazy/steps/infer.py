@@ -1,3 +1,4 @@
+import shutil
 from pathlib import Path
 
 from dpdispatcher import Task
@@ -151,13 +152,36 @@ class DeepHStep:
                 print(f"  skip (done): inference already available at {latest}")
                 return []
 
-        inputs_dir = self._resolve("inputs_dir")
         local_inputs = infer_dir / "inputs"
-        if inputs_dir and not local_inputs.exists():
-            src = Path(inputs_dir)
-            if src.is_dir():
-                local_inputs.symlink_to(src, target_is_directory=True)
-                print(f"  link inputs: {local_inputs} -> {src}")
+        structures = utils.read_structures(self.param["structures"])
+
+        if local_inputs.exists():
+            shutil.rmtree(local_inputs)
+        local_inputs.mkdir(parents=True, exist_ok=True)
+
+        for sid, poscar in structures:
+            struct_dir = local_inputs / sid
+            struct_dir.mkdir(parents=True, exist_ok=True)
+
+            (struct_dir / "POSCAR").symlink_to(Path(poscar).resolve())
+
+            olp_dir = work_dir / "restart" / "olp" / sid
+            for name in ("overlap.h5", "info.json"):
+                src = olp_dir / name
+                if src.exists():
+                    (struct_dir / name).symlink_to(src)
+
+        inp = self._resolve("inputs_dir")
+        if inp:
+            for sid, _ in structures:
+                for name in ("overlap.h5", "info.json"):
+                    target = local_inputs / sid / name
+                    if not target.exists():
+                        alt = Path(inp) / sid / name
+                        if alt.exists():
+                            target.symlink_to(alt)
+
+        print(f"  build inputs: {local_inputs} ({len(structures)} structures)")
 
         model_dir = self._resolve("model")
         if model_dir is None:
@@ -170,10 +194,6 @@ class DeepHStep:
         print(f"  gen: _infer.toml (model={model_dir})")
 
         forward = ["_infer.toml"]
-        if local_inputs.exists() and local_inputs.is_symlink():
-            target = local_inputs.resolve()
-            if target.exists():
-                forward.append(str(local_inputs.relative_to(work_dir)))
 
         tasks = [Task(
             command=f"{executable} infer _infer.toml",

@@ -18,4 +18,4 @@ def create_step(defn, param, mcfg, ctx):
     return _registry[type_name](defn, param, mcfg, ctx)
 
 
-from . import scf, infer
+from . import olp, scf, infer
