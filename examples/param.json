@@ -1,6 +1,6 @@
 {
-  "name": "al_coopt_300K",
-  "structures": "structures.txt",
+  "name": "al_coopt_430K",
+  "structures": "structures-430K.txt",
   "work_dir": "datasets/al",
   "openmx": {
     "calc_type": "restart",
@@ -15,17 +15,18 @@
   },
   "steps": [
     {
+      "name": "olp",
+      "type": "olp"
+    },
+    {
       "name": "infer",
       "type": "deeph",
-      "model": "../models/albatross-exp40k/model",
-      "inputs_dir": "../restart-tight/inference/inputs",
-      "deeph_dir": "../co-opt-calc/inference/outputs"
+      "model": "../models/albatross-exp40k/model"
     },
     {
       "name": "e6",
       "type": "scf",
       "scf_criterion": 1e-06,
-      "mixing_type": "DIIS",
       "startpulay": 3,
       "mixing_history": 30,
       "init_from": "deeph"
