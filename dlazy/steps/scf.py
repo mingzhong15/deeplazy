@@ -60,15 +60,23 @@ class RestartSCFStep:
 
         structures = utils.read_structures(self.param["structures"])
         prev_results = self.ctx.get("_final_h")
+        no_deeph = 0
 
         for sid, poscar in structures:
             step_dir = work_dir / "restart" / self.name / sid
             step_dir.mkdir(parents=True, exist_ok=True)
 
+            pred_link = step_dir / "hamiltonian_pred.h5"
+            init_source = self.defn.get("init_from", "deeph")
+
             std_path = step_dir / "openmx.std"
             if utils.check_finished(std_path):
-                print(f"  skip (done): {sid}/{self.name}")
-                continue
+                stale = False
+                if init_source == "deeph" and pred_link.is_symlink() and std_path.exists():
+                    stale = pred_link.lstat().st_mtime_ns > std_path.stat().st_mtime_ns
+                if not stale:
+                    print(f"  skip (done): {sid}/{self.name}")
+                    continue
 
             if gen:
                 gen.generate(str(poscar), output_dir=str(step_dir),
@@ -87,18 +95,21 @@ class RestartSCFStep:
             else:
                 print(f"  WARNING: no generator for {sid}/{self.name}")
 
-            pred_link = step_dir / "hamiltonian_pred.h5"
-            init_source = self.defn.get("init_from", "deeph")
-
             if init_source == "deeph":
                 deeph_dir = self._resolve_deeph_dir()
-                if deeph_dir:
-                    src = Path(deeph_dir) / sid / "hamiltonian_pred.h5"
-                    if src.exists():
-                        if pred_link.is_symlink() or pred_link.exists():
-                            pred_link.unlink()
-                        pred_link.symlink_to(src)
-                        print(f"  link deeph: {sid}/{self.name}")
+                if not deeph_dir:
+                    print(f"  ERROR: no inference output dir, cannot initialize {sid}/{self.name}")
+                    no_deeph += 1
+                    continue
+                src = Path(deeph_dir) / sid / "hamiltonian_pred.h5"
+                if not src.exists():
+                    print(f"  ERROR: {src} not found, cannot initialize {sid}/{self.name}")
+                    no_deeph += 1
+                    continue
+                if pred_link.is_symlink() or pred_link.exists():
+                    pred_link.unlink()
+                pred_link.symlink_to(src)
+                print(f"  link deeph: {sid}/{self.name}")
 
             elif init_source == "prev" and prev_results:
                 src_path = prev_results.get(sid)
@@ -119,6 +130,9 @@ class RestartSCFStep:
                 backward_files=["openmx.std", "hamiltonians_step*.h5"],
                 outlog="openmx.out",
             ))
+
+        if no_deeph:
+            print(f"  ERROR: {no_deeph} structures have no DeepH prediction, cannot run cold-start SCF")
 
         return tasks
 
