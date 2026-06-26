@@ -102,7 +102,7 @@ class SCFStep:
                         continue
                     print(f"  WARNING: no inference output dir for {sid}/{self.name}, cold-start SCF")
                 else:
-                    src = Path(deeph_dir) / sid / "hamiltonian_pred.h5"
+                    src = (Path(deeph_dir) / sid / "hamiltonian_pred.h5").resolve()
                     if not src.exists():
                         if check_pred:
                             print(f"  ERROR: {src} not found, cannot initialize {sid}/{self.name}")
@@ -119,7 +119,7 @@ class SCFStep:
                 if src_path and Path(src_path).exists():
                     if pred_link.is_symlink() or pred_link.exists():
                         pred_link.unlink()
-                    pred_link.symlink_to(Path(src_path))
+                    pred_link.symlink_to(Path(src_path).resolve())
                     print(f"  link prev: {sid}/{self.name}")
 
             work_path = Path("restart") / self.name / sid

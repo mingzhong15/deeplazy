@@ -48,6 +48,8 @@ class Workflow:
                     for f in task_dir.iterdir():
                         if f.name == "openmx.std":
                             continue
+                        if f.name in ("openmx_in.dat", "hamiltonian_pred.h5"):
+                            continue
                         shutil.move(str(f), str(dst / f.name))
             shutil.rmtree(tmp_hash, ignore_errors=True)
 
