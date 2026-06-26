@@ -43,6 +43,13 @@ def extract_scf_criterion(val):
     return val
 
 
+def print_progress_bar(done, total, label, width=30):
+    frac = done / total if total else 0
+    filled = int(width * frac)
+    bar = "▓" * filled + "░" * (width - filled)
+    print(f"  [{label}] {bar} {done}/{total}")
+
+
 def make_mpi_cmd(template, exe, cpus):
     cmd = template.replace("{cpus}", str(cpus))
     return f"{cmd} {exe} openmx_in.dat > openmx.std"

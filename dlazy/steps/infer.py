@@ -209,5 +209,7 @@ class DeepHStep:
         latest = config.find_latest_deeph_dir([str(outputs_dir)])
         if latest:
             self.ctx["_deeph_dir"] = latest
-            n = len(list(Path(latest).iterdir())) if Path(latest).is_dir() else 0
-            print(f"  deeph_dir: {latest} ({n} structures)")
+            structures = utils.read_structures(self.param["structures"])
+            done = len(list(Path(latest).iterdir())) if Path(latest).is_dir() else 0
+            utils.print_progress_bar(done, len(structures), self.name)
+            print(f"  deeph_dir: {latest} ({done} structures)")

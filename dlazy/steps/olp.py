@@ -108,4 +108,8 @@ class OLPStep:
         return tasks
 
     def collect(self):
-        pass
+        work_dir = Path(self.param["work_dir"])
+        structures = utils.read_structures(self.param["structures"])
+        done = sum(1 for sid, _ in structures
+                   if (work_dir / "restart" / self.name / sid / "overlap.h5").exists())
+        utils.print_progress_bar(done, len(structures), self.name)

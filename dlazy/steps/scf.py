@@ -133,3 +133,4 @@ class RestartSCFStep:
                 final_h[sid] = h
         self.ctx["_final_h"] = final_h
         self.ctx[f"_final_h_{self.name}"] = final_h
+        utils.print_progress_bar(len(final_h), len(structures), self.name)

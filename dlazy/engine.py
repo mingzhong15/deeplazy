@@ -35,8 +35,6 @@ class Workflow:
 
         if tmp_hash.is_dir():
             for std in tmp_hash.rglob("openmx.std"):
-                if "normally finished" not in std.read_text():
-                    continue
                 task_dir = std.parent
                 rel = task_dir.relative_to(tmp_hash)
                 dst = work_dir / rel
@@ -92,7 +90,7 @@ class Workflow:
 
             base = Path(self.param["_base"])
             work_dir = Path(self.param["work_dir"])
-            self.machine.context.temp_remote_root = str(base / "tmp")
+            self.machine.context.temp_remote_root = str(base / "tmp" / step.name)
             self.machine.context.temp_local_root = str(work_dir)
 
             self._set_job_name(step.name)
