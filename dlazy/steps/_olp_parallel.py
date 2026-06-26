@@ -4,19 +4,21 @@ import multiprocessing
 import os
 import subprocess
 import sys
+from pathlib import Path
 
 
 def run_one_structure(args):
     sid, step_dir, mpi_cmd, ntasks, exe = args
-    os.chdir(str(step_dir))
+    step_path = Path(step_dir)
+    os.chdir(str(step_path))
     cmd = mpi_cmd.replace("{cpus}", str(ntasks))
     cmd = f"{cmd} {exe} openmx_in.dat > openmx.std 2>&1"
     result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
-    ok = result.returncode == 0 and (step_dir / "overlap.h5").exists()
+    ok = result.returncode == 0 and (step_path / "overlap.h5").exists()
     status = "OK" if ok else "FAIL"
     print(f"[{status}] {sid}")
     if not ok:
-        print(f"  returncode={result.returncode}, overlap.h5 exists={os.path.exists(str(step_dir / 'overlap.h5'))}")
+        print(f"  returncode={result.returncode}, overlap.h5 exists={(step_path / 'overlap.h5').exists()}")
     return sid, ok
 
 
@@ -29,13 +31,12 @@ def main():
     parser.add_argument("--nworkers", type=int, required=True)
     args = parser.parse_args()
 
-    manifest_path = os.path.abspath(args.manifest)
-    base_dir = os.path.dirname(os.path.dirname(manifest_path))
+    with open(args.manifest) as f:
+        manifest = json.load(f)
+    work_dir = manifest["work_dir"] if isinstance(manifest, dict) else os.path.abspath(os.path.dirname(args.manifest))
+    sids = manifest["sids"] if isinstance(manifest, dict) else manifest
 
-    with open(manifest_path) as f:
-        sids = json.load(f)
-
-    batch = [(sid, os.path.join(base_dir, "restart", "olp", sid),
+    batch = [(sid, os.path.join(work_dir, "restart", "olp", sid),
               args.mpi, args.nprocs, args.exe) for sid in sids]
 
     print(f"[BATCH] {len(sids)} structures, {args.nworkers} workers, {args.nprocs} cores/task")

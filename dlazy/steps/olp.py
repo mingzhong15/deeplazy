@@ -86,7 +86,10 @@ class OLPStep:
             manifest_name = f"_olp_manifest_{batch_idx}.json"
             manifest_path = work_dir / "restart" / self.name / manifest_name
             manifest_path.parent.mkdir(parents=True, exist_ok=True)
-            manifest_path.write_text(json.dumps(sids))
+            manifest_path.write_text(json.dumps({
+                "work_dir": str(work_dir.resolve()),
+                "sids": sids
+            }))
 
             tasks.append(Task(
                 command=f"python3 _olp_parallel.py --manifest restart/{self.name}/{manifest_name} "
