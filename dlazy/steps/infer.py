@@ -152,17 +152,18 @@ class DeepHStep:
                 print(f"  skip (done): inference already available at {latest}")
                 return []
 
-        local_inputs = infer_dir / "inputs" / "dft"
+        local_inputs = infer_dir / "inputs"
+        local_dft = local_inputs / "dft"
         structures = utils.read_structures(self.param["structures"])
 
         if local_inputs.is_symlink() or local_inputs.is_file():
             local_inputs.unlink()
         elif local_inputs.exists():
             subprocess.run(["rm", "-rf", str(local_inputs)])
-        local_inputs.mkdir(parents=True, exist_ok=True)
+        local_dft.mkdir(parents=True, exist_ok=True)
 
         for sid, poscar in structures:
-            struct_dir = local_inputs / sid
+            struct_dir = local_dft / sid
 
             olp_dir = work_dir / "restart" / "olp" / sid
             if not (olp_dir / "overlap.h5").exists():
@@ -181,7 +182,7 @@ class DeepHStep:
         if inp:
             for sid, _ in structures:
                 for name in ("overlap.h5", "info.json"):
-                    target = local_inputs / sid / name
+                    target = local_dft / sid / name
                     if not target.exists():
                         alt = Path(inp) / sid / name
                         if alt.exists():
