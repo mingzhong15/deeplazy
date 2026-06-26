@@ -1,4 +1,6 @@
+import json
 import subprocess
+from datetime import datetime
 from pathlib import Path
 
 import h5py
@@ -141,18 +143,35 @@ class DeepHStep:
             print("  force: re-running inference (force=True)")
             latest = None
         elif latest:
-            structures = utils.read_structures(self.param["structures"])
-            needed = {sid for sid, _ in structures}
-            existing = {p.parent.name for p in Path(latest).glob("*/hamiltonian_pred.h5")}
-            missing = needed - existing
-
-            if missing:
-                print(f"  partial: {len(existing)}/{len(needed)} structures done, "
-                      f"{len(missing)} missing, re-running inference")
+            current_model = self._resolve("model")
+            meta_path = outputs_dir / ".metadata.json"
+            model_changed = False
+            if meta_path.exists():
+                meta = json.loads(meta_path.read_text())
+                if meta.get("model_path") != current_model:
+                    print(f"  model changed: {meta.get('model_path')} -> {current_model}")
+                    model_changed = True
+                elif current_model and Path(current_model).is_dir():
+                    current_mtime = Path(current_model).stat().st_mtime_ns
+                    if meta.get("model_mtime") != current_mtime:
+                        print(f"  model modified (mtime changed)")
+                        model_changed = True
+            if model_changed:
+                print("  re-running inference due to model change")
                 latest = None
             else:
-                print(f"  skip (done): inference already available at {latest}")
-                return []
+                structures = utils.read_structures(self.param["structures"])
+                needed = {sid for sid, _ in structures}
+                existing = {p.parent.name for p in Path(latest).glob("*/hamiltonian_pred.h5")}
+                missing = needed - existing
+
+                if missing:
+                    print(f"  partial: {len(existing)}/{len(needed)} structures done, "
+                          f"{len(missing)} missing, re-running inference")
+                    latest = None
+                else:
+                    print(f"  skip (done): inference already available at {latest}")
+                    return []
 
         local_inputs = infer_dir / "inputs"
         local_dft = local_inputs / "dft"
@@ -235,3 +254,15 @@ class DeepHStep:
             done = len(list(Path(latest).iterdir())) if Path(latest).is_dir() else 0
             utils.print_progress_bar(done, len(structures), self.name)
             print(f"  deeph_dir: {latest} ({done} structures)")
+
+            model_dir = self._resolve("model")
+            if model_dir and Path(model_dir).is_dir():
+                model_mtime = Path(model_dir).stat().st_mtime_ns
+            else:
+                model_mtime = None
+            metadata = {
+                "model_path": model_dir,
+                "model_mtime": model_mtime,
+                "timestamp": datetime.now().isoformat(),
+            }
+            (outputs_dir / ".metadata.json").write_text(json.dumps(metadata, indent=2))
