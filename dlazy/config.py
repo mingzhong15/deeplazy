@@ -31,20 +31,16 @@ def load_machine(path):
     resources = Resources.load_from_dict(cfg["resources"])
 
     mcfg = {}
-    openmx = dict(cfg.get("openmx", {}))
-    for key in ("executable", "data_path", "module_path"):
-        if key in openmx:
-            openmx[key] = str((base / openmx[key]).resolve())
-    mcfg["openmx"] = openmx
-
-    deeph = dict(cfg.get("deeph", {}))
-    for key in ("executable", "infer_toml", "inputs_dir", "deeph_dir"):
-        if key in deeph:
-            deeph[key] = str((base / deeph[key]).resolve())
-    mcfg["deeph"] = deeph
+    for section in ("olp", "infer", "fp"):
+        sec = dict(cfg.get(section, {}))
+        for key in ("executable", "mpi_cmd", "data_path", "module_path", "infer_toml"):
+            if key in sec:
+                sec[key] = str((base / sec[key]).resolve())
+            elif key == "mpi_cmd" and "mpi_cmd" not in sec:
+                pass  # optional
+        mcfg[section] = sec
 
     mcfg["job_name_prefix"] = cfg.get("job_name_prefix")
-    mcfg["backward_files"] = cfg.get("backward_files")
 
     return machine, resources, mcfg
 

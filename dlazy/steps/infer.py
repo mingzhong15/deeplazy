@@ -103,7 +103,7 @@ class DeepHStep:
         return str((Path(self.param["_base"]) / val).resolve())
 
     def _get_infer_toml(self, work_dir, local_inputs, outputs_dir, model_dir):
-        deeph = self.mcfg.get("deeph", {})
+        deeph = self.mcfg.get("infer", {})
         src = deeph.get("infer_toml")
 
         if src:
@@ -125,7 +125,7 @@ class DeepHStep:
 
     def prepare(self):
         work_dir = Path(self.param["work_dir"])
-        deeph = self.mcfg.get("deeph", {})
+        deeph = self.mcfg.get("infer", {})
         executable = deeph.get("executable", "deepx")
 
         infer_dir = work_dir / "inference"
@@ -152,7 +152,7 @@ class DeepHStep:
                 print(f"  skip (done): inference already available at {latest}")
                 return []
 
-        local_inputs = infer_dir / "inputs"
+        local_inputs = infer_dir / "inputs" / "dft"
         structures = utils.read_structures(self.param["structures"])
 
         if local_inputs.is_symlink() or local_inputs.is_file():
@@ -163,11 +163,15 @@ class DeepHStep:
 
         for sid, poscar in structures:
             struct_dir = local_inputs / sid
-            struct_dir.mkdir(parents=True, exist_ok=True)
-
-            (struct_dir / "POSCAR").symlink_to(Path(poscar).resolve())
 
             olp_dir = work_dir / "restart" / "olp" / sid
+            if not (olp_dir / "overlap.h5").exists():
+                print(f"  WARNING: no OLP output for {sid}, skipping inference input")
+                continue
+
+            struct_dir.mkdir(parents=True, exist_ok=True)
+            (struct_dir / "POSCAR").symlink_to(Path(poscar).resolve())
+
             for name in ("overlap.h5", "info.json"):
                 src = olp_dir / name
                 if src.exists():

@@ -23,7 +23,7 @@ class RestartSCFStep:
         return self.defn.get(key, self.param.get("openmx", {}).get(key, default))
 
     def _get_software(self, key, default=None):
-        return self.mcfg.get("openmx", {}).get(key, default)
+        return self.mcfg.get("fp", {}).get(key, default)
 
     def _get_deeph(self, key, default=None):
         return self.mcfg.get("deeph", {}).get(key, default)

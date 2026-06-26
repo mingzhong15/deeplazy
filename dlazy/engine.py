@@ -27,11 +27,11 @@ class Workflow:
         flags.append(f"#SBATCH --job-name={job_name}")
         self.resources.custom_flags = flags
 
-    def _cleanup_step(self, sub):
+    def _cleanup_step(self, sub, step_name=None):
         base = Path(self.param["_base"])
         work_dir = Path(self.param["work_dir"])
         tmp_hash = base / "tmp" / sub.submission_hash
-        patterns = self.mcfg.get("backward_files")
+        patterns = self.mcfg.get(step_name, {}).get("backward_files") if step_name else None
 
         if tmp_hash.is_dir():
             for std in tmp_hash.rglob("openmx.std"):
@@ -114,7 +114,7 @@ class Workflow:
                 sub.run_submission()
             except FileNotFoundError:
                 print(f"  WARNING: some .h5 missing (SCF not converged for some structures)")
-            self._cleanup_step(sub)
+            self._cleanup_step(sub, step.name)
             step.collect()
 
         print()

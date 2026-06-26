@@ -22,7 +22,7 @@ class OLPStep:
         self.name = defn["name"]
 
     def _get_software(self, key, default=None):
-        return self.mcfg.get("openmx", {}).get(key, default)
+        return self.mcfg.get("olp", {}).get(key, default)
 
     def prepare(self):
         tasks = []
@@ -34,9 +34,8 @@ class OLPStep:
         module_path = self._get_software("module_path")
         mpi_cmd_tmpl = self._get_software("mpi_cmd", "mpirun -np {cpus}")
 
-        olp_cfg = self.mcfg.get("olp", {})
-        nprocs = olp_cfg.get("nprocs", 8)
-        nworkers = olp_cfg.get("nworkers", 7)
+        nprocs = self._get_software("nprocs", 8)
+        nworkers = self._get_software("nworkers", 7)
 
         Gen = dlazy_config.resolve_openmx_generator(module_path)
         gen = Gen(data_path=data_path) if Gen and data_path else None
