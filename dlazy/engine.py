@@ -96,6 +96,16 @@ class Workflow:
             self.machine.context.temp_local_root = str(work_dir)
 
             self._set_job_name(step.name)
+
+            # Apply per-step resource overrides from mcfg
+            step_type = defn.get("type")
+            step_cfg = self.mcfg.get(step_type, {})
+            for key in ("cpus_per_task", "group_size"):
+                if key in step_cfg:
+                    old = getattr(self.resources, key, None)
+                    setattr(self.resources, key, step_cfg[key])
+                    print(f"  resource: {key} = {step_cfg[key]} (was {old})")
+
             sub = Submission(
                 work_base=".",
                 machine=self.machine,
