@@ -1,6 +1,8 @@
 import subprocess
 from pathlib import Path
 
+import h5py
+import numpy as np
 from dpdispatcher import Task
 
 from . import register_step
@@ -177,6 +179,19 @@ class DeepHStep:
                 src = olp_dir / name
                 if src.exists():
                     (struct_dir / name).symlink_to(src)
+
+            ham_path = struct_dir / "hamiltonian.h5"
+            if not ham_path.exists() and (struct_dir / "overlap.h5").exists():
+                try:
+                    with h5py.File(struct_dir / "overlap.h5", "r") as src:
+                        with h5py.File(ham_path, "w") as dst:
+                            for key in src:
+                                data = src[key][()]
+                                if key == "entries":
+                                    data = np.zeros_like(data)
+                                dst.create_dataset(key, data=data)
+                except Exception:
+                    pass
 
         inp = self._resolve("inputs_dir")
         if inp:
