@@ -155,7 +155,9 @@ class DeepHStep:
         local_inputs = infer_dir / "inputs"
         structures = utils.read_structures(self.param["structures"])
 
-        if local_inputs.exists():
+        if local_inputs.is_symlink() or local_inputs.is_file():
+            local_inputs.unlink()
+        elif local_inputs.exists():
             shutil.rmtree(local_inputs)
         local_inputs.mkdir(parents=True, exist_ok=True)
 
