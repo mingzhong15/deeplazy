@@ -1,5 +1,4 @@
 import json
-import sys
 from pathlib import Path
 
 from dpdispatcher import Machine, Resources
@@ -33,7 +32,7 @@ def load_machine(path):
     mcfg = {}
     for section in ("olp", "infer", "fp"):
         sec = dict(cfg.get(section, {}))
-        for key in ("executable", "data_path", "module_path", "infer_toml"):
+        for key in ("executable", "data_path", "infer_toml"):
             if key in sec:
                 sec[key] = str((base / sec[key]).resolve())
         mcfg[section] = sec
@@ -56,15 +55,9 @@ def find_latest_deeph_dir(search_dirs):
     return None
 
 
-def resolve_openmx_generator(module_path=None):
-    if module_path:
-        if module_path not in sys.path:
-            sys.path.insert(0, module_path)
+def resolve_openmx_generator():
     try:
-        from input_from_mind.openmx import OpenMXGenerator as Gen
+        from dlazy.generator import OpenMXGenerator as Gen
     except ImportError:
-        try:
-            from dlazy.generator import OpenMXGenerator as Gen
-        except ImportError:
-            Gen = None
+        Gen = None
     return Gen

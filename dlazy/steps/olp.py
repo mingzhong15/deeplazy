@@ -31,13 +31,12 @@ class OLPStep:
 
         executable = self._get_software("executable", "openmx")
         data_path = self._get_software("data_path")
-        module_path = self._get_software("module_path")
         mpi_cmd_tmpl = self._get_software("mpi_cmd", "mpirun -np {cpus}")
 
         nprocs = self._get_software("nprocs", 8)
         nworkers = self._get_software("nworkers", 7)
 
-        Gen = dlazy_config.resolve_openmx_generator(module_path)
+        Gen = dlazy_config.resolve_openmx_generator()
         gen = Gen(data_path=data_path) if Gen and data_path else None
 
         structures = utils.read_structures(self.param["structures"])

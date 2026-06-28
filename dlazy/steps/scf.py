@@ -44,6 +44,16 @@ class SCFStep:
         candidates.append(str(outputs_base))
         return dlazy_config.find_latest_deeph_dir(candidates)
 
+    def _find_prev_hamiltonian(self, work_dir, sid):
+        restart = Path(work_dir) / "restart"
+        if not restart.is_dir():
+            return None
+        prev_dirs = sorted(d for d in restart.iterdir() if d.is_dir() and d.name < self.name)
+        if not prev_dirs:
+            return None
+        h = utils.find_final_hamiltonian(prev_dirs[-1] / sid)
+        return h
+
     def _prepare(self, check_pred):
         tasks = []
         work_dir = Path(self.param["work_dir"])
@@ -51,11 +61,10 @@ class SCFStep:
 
         executable = self._get_software("executable", "openmx")
         data_path = self._get_software("data_path")
-        module_path = self._get_software("module_path")
         mpi_cmd_tmpl = self._get_software("mpi_cmd", "mpirun -np {cpus}")
         cpus = self._get_software("cpus_per_task", 64)
 
-        Gen = dlazy_config.resolve_openmx_generator(module_path)
+        Gen = dlazy_config.resolve_openmx_generator()
         gen = Gen(data_path=data_path) if Gen and data_path else None
 
         structures = utils.read_structures(self.param["structures"])
@@ -90,6 +99,10 @@ class SCFStep:
                              max_mixing_weight=openmx_defaults.get("max_mixing_weight", 0.8),
                              detailed_output=openmx_defaults.get("detailed_output", True),
                              step1_mix_h=openmx_defaults.get("step1_mix_h", False))
+                inp_path = step_dir / "openmx_in.dat"
+                if inp_path.exists() and "scf.OverlapOnly" not in inp_path.read_text():
+                    with open(inp_path, "a") as f:
+                        f.write("scf.OverlapOnly     Off\n")
                 print(f"  gen: {sid}/{self.name}")
             else:
                 print(f"  WARNING: no generator for {sid}/{self.name}")
@@ -114,8 +127,12 @@ class SCFStep:
                         pred_link.symlink_to(src)
                         print(f"  link deeph: {sid}/{self.name}")
 
-            elif init_source == "prev" and prev_results:
-                src_path = prev_results.get(sid)
+            elif init_source == "prev":
+                src_path = None
+                if prev_results:
+                    src_path = prev_results.get(sid)
+                if not src_path or not Path(src_path).exists():
+                    src_path = self._find_prev_hamiltonian(work_dir, sid)
                 if src_path and Path(src_path).exists():
                     if pred_link.is_symlink() or pred_link.exists():
                         pred_link.unlink()

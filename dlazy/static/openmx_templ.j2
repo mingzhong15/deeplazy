@@ -1,0 +1,110 @@
+#
+#File name and path
+#
+System.CurrrentDirectory        {{ System_CurrrentDirectory | default('./') }}    # default=./
+System.Name                     {{ System_Name | default('openmx') }}
+level.of.stdout                 {{ level_of_stdout | default('1') }}             # default=1 (1-3)
+level.of.fileout                {{ level_of_fileout | default('0') }}            # default=1 (0-2)
+DATA.PATH                       {{ DATA_PATH }}
+#
+#Defination of Atomic Species
+#
+Species.Number       {{ Species_Number }}
+<Definition.of.Atomic.Species
+{{ Block_Definition_of_Atomic_Species }}
+Definition.of.Atomic.Species>
+#
+#Structure
+#
+Atoms.Number         {{ Atoms_Number }}
+Atoms.SpeciesAndCoordinates.Unit  {{ Atoms_SpeciesAndCoordinates_Unit | default('FRAC') }} # Ang|AU
+<Atoms.SpeciesAndCoordinates
+{{ Block_Atoms_SpeciesAndCoordinates }}
+Atoms.SpeciesAndCoordinates>
+Atoms.UnitVectors.Unit  {{ Atoms_UnitVectors_Unit | default('Ang') }}
+<Atoms.UnitVectors
+{{ Block_Atoms_UnitVectors }}
+Atoms.UnitVectors>
+#
+#SCF Related Parameters
+#
+scf.XcType                 {{ scf_XcType | default('GGA-PBE') }}                      # LDA|LSDA-CA|LSDA-PW|GGA-PBE
+scf.ElectronicTemperature  {{ scf_ElectronicTemperature | default('300.0') }}       # default=300 (K) 
+scf.energycutoff           {{ scf_energycutoff | default('300') }}                # default=150 (Ry) #ecutoff
+scf.maxIter                {{ scf_maxIter | default('300') }}                     # default=40 
+scf.EigenvalueSolver       {{ scf_EigenvalueSolver | default('Band') }}            # DC|GDC|Cluster|Band
+#scf.Ngrid                             #??????
+scf.Kgrid                  {{ scf_Kgrid }}                       # means n1 x n2 x n3 #Kpointsampling
+#scf.Generation.Kpoint      {{ scf_Generation_Kpoint | default('MP') }}           # regular|MP  #GenerateKpoint
+scf.criterion              {{ scf_criterion }}                   # default=1.0e-6(Hartree)(Hartree=27eV)
+#scf.lapack.dste            dstevx                             # dstevx|dstedc|dstegr,default=dstevx#??????
+scf.partialCoreCorrection  {{ scf_partialCoreCorrection | default('ON') }}       # in any cases, this parameter should be on
+####SOC and noncollinear cal####
+scf.SpinPolarization       {{ scf_SpinPolarization }}            # On|Off|NC
+scf.SpinOrbit.Coupling     {{ scf_SpinOrbit_Coupling }}          # On|Off, default=off
+#scf.Constraint.NC.Spin
+#scf.Constraint.NC.Spin.v
+####Band analysis and unfolding related parameters####
+#Unfolding.Electronic.Band      __Unfolding.Electronic.Band__   # on|off, default=off
+#Unfolding.LowerBound           __Unfolding.LowerBound__        # default=-10 eV
+#Unfolding.UpperBound           __Unfolding.UpperBound__        # default= 10 eV
+#Unfolding.Nkpoint              __Unfolding.Nkpoint__
+#Unfolding.desired_totalnkpt    __Unfolding.desired_totalnkpt__
+#<Unfolding.kpoint
+#__Unfolding.kpoint__
+#Unfolding.kpoint>
+####DFT-D3 VDW correction with zero damping functions####
+#scf.dftD                   __scf.dftD__                       # on|off, default=off
+#version.dftD               __version.dftD__                   # 2|3, default=2
+#DFTD3.damp                 __DFTD3.damp__                     # zero|bj, default=bj
+#DFTD.Unit                  __DFTD.Unit__                      # Ang|AU
+#DFTD.rcut_dftD             __DFTD.rcut_dftD__                 # default=100 (DFTD.Unit)
+#DFTD.cncut_dftD            __DFTD.cncut_dftD__                # default=40 (DFTD.Unit)
+#DFTD.IntDirection          __DFTD.IntDirection__              # default=1 1 1 (1:on 0:off)
+####Mixing parameters related to RMM-DIISK method####
+scf.Mixing.Type            {{ scf_Mixing_Type | default('RMM-DIISK') }}                # Simple|Rmm-Diis|Gr-Pulay|Kerker|Rmm-Diisk(Most robust)
+scf.Init.Mixing.Weight     {{ scf_Init_Mixing_Weight | default('0.3') }}         # default=0.30
+scf.Max.Mixing.Weight      {{ scf_Max_Mixing_Weight | default('0.8') }}         # default=0.80
+scf.Mixing.History         {{ scf_Mixing_History | default('30') }}             # default=5
+scf.Mixing.StartPulay      {{ scf_Mixing_StartPulay | default('6') }}          # default=6
+scf.Mixing.EveryPulay      {{ scf_Mixing_EveryPulay | default('1') }}          # default=6
+####1DFFT####
+1DFFT.NumGridK             {{ _1DFFT_NumGridK | default('900') }}                 # default=900
+1DFFT.NumGridR             {{ _1DFFT_NumGridR | default('900') }}                 # default=900
+1DFFT.EnergyCutoff         {{ _1DFFT_EnergyCutoff | default('3600.0') }}             # default=3600 (Ry)
+####Orbital optimization####
+#blank
+####LDA+U####
+#scf.Hubbard.U             __scf.Hubbard.U__            # On|OFF
+#scf.Hubbard.Occupation    __scf.Hubbard.Occupation__         # onsite|full|dual
+#<Hubbard.U.values
+# __Hubbard.U.values__
+#Hubbard.U.values>
+####Others####
+scf.ProExpn.VNA   {{ scf_ProExpn_VNA | default('Off') }}     # avoid overcomplete
+#scf.Electric.Field       1.0 0.0 0.0     # electric field along a-axis
+#scf.system.charge         0              # plus(hole doping)
+####Density of state####
+#Dos.fileout                on            # dos and pdos
+#Dos.Erange             -10.0  10.0    
+#Dos.Kgrd               21 21 21
+#
+#Geometry Optimization(Never use)
+#
+MD.Type                    {{ MD_Type | default('Nomd') }}          # Nomd(No optimization)|Opt(optimization)
+#MD.maxIter                 1000          # default=1
+#MD.Opt.criterion           1.0e-3        # default=1.0e-4 (Hartree/bohr)
+{% if BAND | default(false) %}
+#
+#Band Calculations
+#
+Band.dispersion            {{ Band_dispersion | default('on') }}             # on|off, default=off
+Band.Nkpath           {{ Band_Nkpath }}
+<Band.kpath
+{{ Block_Band_kpath }}
+Band.kpath>
+{% endif %}
+#
+#Iterface for developers
+#
+HS.fileout            {{ HS_fileout | default('On') }}      # on|off, default=off
