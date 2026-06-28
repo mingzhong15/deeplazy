@@ -1,3 +1,4 @@
+import hashlib
 import json
 import shutil
 import time
@@ -26,13 +27,39 @@ class Workflow:
             return json.loads(self._record_path.read_text())
         return {}
 
+    def _structures_hash(self):
+        p = self._resolve_structures_path()
+        if not p or not p.exists():
+            return None
+        return hashlib.md5(p.read_bytes()).hexdigest()[:12]
+
+    def _resolve_structures_path(self):
+        raw = self.param.get("structures")
+        if not raw:
+            return None
+        p = Path(raw)
+        if p.is_absolute():
+            return p
+        return Path(self.param["_base"]) / p
+
     def _save_record(self, step_name):
         rec = self._load_record()
-        rec[step_name] = time.strftime("%Y-%m-%d %H:%M:%S")
+        rec[step_name] = {
+            "time": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "structures_file": self.param["structures"],
+            "structures_hash": self._structures_hash(),
+        }
         self._record_path.write_text(json.dumps(rec, indent=2) + "\n")
 
     def _step_is_done(self, step_name):
-        return step_name in self._load_record()
+        entry = self._load_record().get(step_name)
+        if not entry:
+            return False
+        if isinstance(entry, str):
+            return False
+        if entry.get("structures_hash") != self._structures_hash():
+            return False
+        return True
 
     def collect_results(self, step_filter=None):
         from .exporter import export_step_dataset, package_datasets
@@ -102,6 +129,8 @@ class Workflow:
             print(f"Group:    {gs} tasks/job")
         print()
 
+        work_dir = Path(self.param["work_dir"])
+
         for i, defn in enumerate(step_defs):
             if step_filter and defn["name"] != step_filter:
                 continue
@@ -129,7 +158,6 @@ class Workflow:
                 continue
 
             base = Path(self.param["_base"])
-            work_dir = Path(self.param["work_dir"])
             self.machine.context.temp_remote_root = str(base / "tmp" / step.name)
             self.machine.context.temp_local_root = str(work_dir)
 
