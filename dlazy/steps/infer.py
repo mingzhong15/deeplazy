@@ -10,6 +10,13 @@ from dpdispatcher import Task
 from . import register_step
 from .. import config
 from .. import utils
+from ..utils import resolve_backward_files
+
+
+INFER_BACKWARD_FILES = [
+    "inference/outputs/*/dft/**",
+    "inference/outputs/*/deepx.log",
+]
 
 
 # ── TOML helpers ──────────────────────────────────────────────────────────────
@@ -249,7 +256,7 @@ class DeepHStep:
             command=f"{executable} infer _infer.toml",
             task_work_path=".",
             forward_files=forward,
-            backward_files=["inference/outputs/*/dft/**", "inference/outputs/*/deepx.log"],
+            backward_files=resolve_backward_files(self.mcfg, "infer", INFER_BACKWARD_FILES),
             outlog="infer.out",
         )]
         return tasks

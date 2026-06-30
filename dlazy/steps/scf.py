@@ -4,7 +4,19 @@ from dpdispatcher import Task
 
 from .. import config as dlazy_config
 from .. import utils
+from ..utils import resolve_backward_files
 from . import register_step
+
+
+SCF_BACKWARD_FILES = [
+    "openmx.std",
+    "hamiltonians_step*.h5",
+    "density_matrixs_step*.h5",
+    "density_step*.h5",
+    "eigenvalues_step*.h5",
+    "forces_step*.h5",
+    "total_energy_step*.h5",
+]
 
 
 @register_step("scf")
@@ -110,9 +122,16 @@ class SCFStep:
                                  detailed_output=openmx_defaults.get("detailed_output", False),
                                  step1_mix_h=openmx_defaults.get("step1_mix_h", False),
                                  step_output=self._get_openmx("step_output"))
-                    if inp_path.exists() and "scf.OverlapOnly" not in inp_path.read_text():
-                        with open(inp_path, "a") as f:
-                            f.write("scf.OverlapOnly     Off\n")
+                    if inp_path.exists():
+                        scf_text = inp_path.read_text()
+                        if "scf.OverlapOnly" not in scf_text:
+                            line = "scf.OverlapOnly     Off"
+                            marker = "MD.Type"
+                            if marker in scf_text:
+                                scf_text = scf_text.replace(marker, line + "\n" + marker, 1)
+                            else:
+                                scf_text += "\n" + line
+                            inp_path.write_text(scf_text)
                     n_gen += 1
                 else:
                     print(f"\n  WARNING: no generator for {sid}/{self.name}")
@@ -159,7 +178,7 @@ class SCFStep:
                 command=utils.make_mpi_cmd(mpi_cmd_tmpl, executable, cpus),
                 task_work_path=str(work_path),
                 forward_files=forward,
-                backward_files=["openmx.std", "hamiltonians_step*.h5"],
+                backward_files=resolve_backward_files(self.mcfg, "fp", SCF_BACKWARD_FILES),
                 outlog="openmx.out",
             ))
 

@@ -62,3 +62,9 @@ def update_progress(done, total, label, width=30):
 def make_mpi_cmd(template, exe, cpus):
     cmd = template.replace("{cpus}", str(cpus))
     return f"{cmd} {exe} openmx_in.dat > openmx.std"
+
+
+def resolve_backward_files(mcfg, step_type, defaults):
+    return (mcfg.get(step_type, {}).get("backward_files")
+            or mcfg.get("backward_files")
+            or defaults)

@@ -6,6 +6,7 @@ from dpdispatcher import Task
 
 from .. import config as dlazy_config
 from .. import utils
+from ..utils import resolve_backward_files
 from . import register_step
 
 
@@ -68,8 +69,14 @@ class OLPStep:
 
             dat_path = step_dir / "openmx_in.dat"
             if dat_path.exists():
-                with open(dat_path, "a") as f:
-                    f.write("\nscf.OverlapOnly     On\n")
+                text = dat_path.read_text()
+                line = "scf.OverlapOnly     On"
+                marker = "MD.Type"
+                if marker in text:
+                    text = text.replace(marker, line + "\n" + marker, 1)
+                else:
+                    text += "\n" + line + "\n"
+                dat_path.write_text(text)
 
             pending.append(sid)
             utils.update_progress(done, total, self.name)
@@ -99,17 +106,20 @@ class OLPStep:
                 "sids": sids
             }))
 
+            olp_defaults = [
+                f"restart/{self.name}/*/overlap.h5",
+                f"restart/{self.name}/*/info.json",
+                f"restart/{self.name}/*/openmx.out",
+                f"restart/{self.name}/*/openmx.std",
+                f"restart/{self.name}/_olp_manifest_*.json",
+            ]
             tasks.append(Task(
                 command=f"python3 _olp_parallel.py --manifest restart/{self.name}/{manifest_name} "
                         f"--exe {executable} --mpi '{mpi_cmd_tmpl}' "
                         f"--nprocs {nprocs} --nworkers {min(nworkers, len(sids))}",
                 task_work_path=".",
                 forward_files=["_olp_parallel.py", f"restart/{self.name}/{manifest_name}"],
-                backward_files=[f"restart/{self.name}/*/overlap.h5",
-                                f"restart/{self.name}/*/info.json",
-                                f"restart/{self.name}/*/openmx.out",
-                                f"restart/{self.name}/*/openmx.std",
-                                f"restart/{self.name}/_olp_manifest_*.json"],
+                backward_files=resolve_backward_files(self.mcfg, "olp", olp_defaults),
                 outlog="_olp_parallel.out",
             ))
 

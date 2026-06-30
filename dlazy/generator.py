@@ -360,7 +360,12 @@ class OpenMXGenerator:
         if step1_mix_h:
             extra.append("scf.Step1MixH     On")
         if extra:
-            content += "\n" + "\n".join(extra) + "\n"
+            extra_block = "\n".join(extra) + "\n"
+            marker = "MD.Type"
+            if marker in content:
+                content = content.replace(marker, extra_block + marker, 1)
+            else:
+                content += "\n" + extra_block
 
         with open(os.path.join(output_dir, "openmx_in.dat"), 'w') as f:
             f.write(content)

@@ -94,11 +94,14 @@ class Workflow:
         flags.append(f"#SBATCH --job-name={job_name}")
         self.resources.custom_flags = flags
 
-    def _cleanup_step(self, sub, step_name=None):
+    def _cleanup_step(self, sub, step_name=None, step_type=None):
         base = Path(self.param["_base"])
         work_dir = Path(self.param["work_dir"])
         tmp_hash = base / "tmp" / step_name / sub.submission_hash if step_name else base / "tmp" / sub.submission_hash
-        patterns = self.mcfg.get(step_name, {}).get("backward_files") if step_name else None
+        patterns = None
+        if step_type:
+            patterns = (self.mcfg.get(step_type, {}).get("backward_files")
+                        or self.mcfg.get("backward_files"))
 
         if tmp_hash.is_dir():
             for std in tmp_hash.rglob("openmx.std"):
@@ -239,9 +242,8 @@ class Workflow:
             except FileNotFoundError:
                 print(f"  WARNING: some .h5 missing (SCF not converged for some structures)")
             sub.submission_to_json()
+            self._cleanup_step(sub, step.name, defn.get("type"))
             sub.clean_jobs()
-
-            self._cleanup_step(sub, step.name)
             step.collect()
             self._save_phase(step.name, "02.collected")
 

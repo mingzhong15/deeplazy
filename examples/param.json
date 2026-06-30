@@ -1,6 +1,6 @@
 {
-  "name": "al_coopt_430K",
-  "structures": "structures-430K.txt",
+  "name": "H_test_conv",
+  "structures": "structures-360K.txt",
   "work_dir": "datasets/al",
   "openmx": {
     "calc_type": "restart",
@@ -10,7 +10,8 @@
     "mixing_history": 30,
     "init_mixing_weight": 0.3,
     "max_mixing_weight": 0.8,
-    "detailed_output": false,
+    "detailed_output": true,
+    "step_output": ["h", "dm", "rho", "eigen", "e", "f"],
     "step1_mix_h": false
   },
   "steps": [

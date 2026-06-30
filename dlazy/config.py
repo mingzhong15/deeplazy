@@ -37,6 +37,7 @@ def load_machine(path):
                 sec[key] = str((base / sec[key]).resolve())
         mcfg[section] = sec
 
+    mcfg["backward_files"] = cfg.get("backward_files", [])
     mcfg["job_name_prefix"] = cfg.get("job_name_prefix")
 
     return machine, resources, mcfg
