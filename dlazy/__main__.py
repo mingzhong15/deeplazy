@@ -16,6 +16,8 @@ def main():
     collect.add_argument("param", help="param.json")
     collect.add_argument("machine", help="machine.json")
     collect.add_argument("--step", default=None, help="Only export one step")
+    collect.add_argument("--all", action="store_true",
+        help="Force collect ALL structures found on disk, ignoring structures file list")
 
     args = parser.parse_args()
 
@@ -25,7 +27,7 @@ def main():
         if args.command == "run":
             wf.run(step_filter=args.step, dry_run=args.dry_run)
         else:
-            wf.collect_results(step_filter=args.step)
+            wf.collect_results(step_filter=args.step, all_sids=args.all)
 
 
 if __name__ == "__main__":

@@ -67,7 +67,7 @@ class Workflow:
         phase = entry.get("phase")
         return phase is None or phase == "02.collected"
 
-    def collect_results(self, step_filter=None):
+    def collect_results(self, step_filter=None, all_sids=False):
         from .exporter import export_step_dataset, package_datasets
         rec = self._load_record()
         work_dir = Path(self.param["work_dir"])
@@ -81,7 +81,7 @@ class Workflow:
                 continue
             print(f"--- Export: {sn} ---")
             export_step_dataset(sn, structures_file=self.param["structures"],
-                                work_dir=work_dir)
+                                work_dir=work_dir, discover_all=all_sids)
         package_datasets(work_dir)
 
     def _set_job_name(self, step_name):

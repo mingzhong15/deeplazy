@@ -6,13 +6,42 @@ from pathlib import Path
 from . import utils
 
 
-def export_step_dataset(step_name, *, structures_file, work_dir):
+def export_step_dataset(step_name, *, structures_file, work_dir, discover_all=False):
     step_src = Path(work_dir) / "restart" / step_name
     olp_src = Path(work_dir) / "restart" / "olp"
     ds_dir = Path(work_dir) / "deeph_datasets" / step_name
     ds_dir.mkdir(parents=True, exist_ok=True)
 
     structures = utils.read_structures(structures_file)
+
+    if discover_all:
+        sid_to_poscar = {sid: p for sid, p in structures}
+
+        poscar_base = poscar_ext = None
+        if sid_to_poscar:
+            example = Path(next(iter(sid_to_poscar.values())))
+            poscar_base, poscar_ext = example.parent, example.suffix
+
+        discovered = sorted(
+            d.name for d in step_src.iterdir()
+            if d.is_dir() and list(d.glob("hamiltonians_step*.h5"))
+        )
+
+        structures = []
+        for sid in discovered:
+            if sid in sid_to_poscar:
+                structures.append((sid, sid_to_poscar[sid]))
+            elif poscar_base:
+                inferred = poscar_base / f"{sid}{poscar_ext}"
+                if inferred.exists():
+                    structures.append((sid, str(inferred)))
+                else:
+                    print(f"  [export] WARNING: POSCAR not found for {sid}, skipping")
+            else:
+                print(f"  [export] WARNING: cannot infer POSCAR for {sid}, skipping")
+
+        print(f"  [export] discovered {len(structures)} structures")
+
     exported = 0
     skipped_h = 0
     missed_olp = 0
