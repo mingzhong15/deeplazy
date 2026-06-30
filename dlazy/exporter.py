@@ -88,6 +88,14 @@ def export_step_dataset(step_name, *, structures_file, work_dir, discover_all=Fa
     return exported
 
 
+def _human_size(b):
+    for unit in ("B", "KB", "MB", "GB", "TB"):
+        if b < 1024:
+            return f"{b:.1f} {unit}"
+        b /= 1024
+    return f"{b:.1f} PB"
+
+
 def package_datasets(work_dir):
     ds_base = Path(work_dir) / "deeph_datasets"
     if not ds_base.is_dir():
@@ -101,6 +109,7 @@ def package_datasets(work_dir):
         print(f"  [package] {d.name}.tar.gz")
         with tarfile.open(tgz, "w:gz") as tf:
             tf.add(d, arcname=d.name)
+        print(f"             {_human_size(tgz.stat().st_size)}")
 
 
 def _write_minimal_info(path):
