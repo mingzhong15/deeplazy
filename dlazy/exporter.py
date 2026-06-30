@@ -1,5 +1,6 @@
 import json
 import shutil
+import sys
 import tarfile
 from pathlib import Path
 
@@ -106,10 +107,15 @@ def package_datasets(work_dir):
         tgz = ds_base / f"{d.name}.tar.gz"
         if tgz.exists() and tgz.stat().st_mtime > d.stat().st_mtime:
             continue
-        print(end=f"  [package] {d.name}.tar.gz ... ")
+        files = [f for f in sorted(d.rglob("*")) if f.is_file()]
         with tarfile.open(tgz, "w:gz") as tf:
-            tf.add(d, arcname=d.name)
-        print(_human_size(tgz.stat().st_size))
+            for i, f in enumerate(files, 1):
+                arcname = f"{d.name}/{f.relative_to(d)}"
+                tf.add(f, arcname=arcname)
+                sys.stdout.write(f"\r  [package] {d.name}.tar.gz ... {i}/{len(files)}")
+                sys.stdout.flush()
+        sys.stdout.write(f"\r  [package] {d.name}.tar.gz ... {_human_size(tgz.stat().st_size)}\n")
+        sys.stdout.flush()
 
 
 def _write_minimal_info(path):
