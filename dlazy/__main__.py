@@ -1,8 +1,6 @@
 import argparse
 import sys
 
-from .engine import Workflow
-
 
 def main():
     parser = argparse.ArgumentParser(description="dlazy — minimal DFT workflow engine")
@@ -21,12 +19,13 @@ def main():
 
     args = parser.parse_args()
 
-    if args.command == "run":
+    if args.command in ("run", "collect"):
+        from .engine import Workflow
         wf = Workflow(args.param, args.machine)
-        wf.run(step_filter=args.step, dry_run=args.dry_run)
-    elif args.command == "collect":
-        wf = Workflow(args.param, args.machine)
-        wf.collect_results(step_filter=args.step)
+        if args.command == "run":
+            wf.run(step_filter=args.step, dry_run=args.dry_run)
+        else:
+            wf.collect_results(step_filter=args.step)
 
 
 if __name__ == "__main__":

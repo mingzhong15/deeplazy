@@ -1,4 +1,5 @@
 import re
+import sys
 from pathlib import Path
 
 
@@ -48,6 +49,14 @@ def print_progress_bar(done, total, label, width=30):
     filled = int(width * frac)
     bar = "▓" * filled + "░" * (width - filled)
     print(f"  [{label}] {bar} {done}/{total}")
+
+
+def update_progress(done, total, label, width=30):
+    frac = done / total if total else 0
+    filled = int(width * frac)
+    bar = "▓" * filled + "░" * (width - filled)
+    sys.stdout.write(f"\r  preparing {label}: {bar} {done}/{total}")
+    sys.stdout.flush()
 
 
 def make_mpi_cmd(template, exe, cpus):

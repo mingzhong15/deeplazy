@@ -42,24 +42,30 @@ class Workflow:
             return p
         return Path(self.param["_base"]) / p
 
-    def _save_record(self, step_name):
+    def _save_phase(self, step_name, phase):
         rec = self._load_record()
         rec[step_name] = {
             "time": time.strftime("%Y-%m-%d %H:%M:%S"),
             "structures_file": self.param["structures"],
             "structures_hash": self._structures_hash(),
+            "phase": phase,
         }
         self._record_path.write_text(json.dumps(rec, indent=2) + "\n")
 
+    def _get_phase(self, step_name):
+        entry = self._load_record().get(step_name)
+        if not entry or isinstance(entry, str):
+            return None
+        return entry.get("phase")
+
     def _step_is_done(self, step_name):
         entry = self._load_record().get(step_name)
-        if not entry:
-            return False
-        if isinstance(entry, str):
+        if not entry or isinstance(entry, str):
             return False
         if entry.get("structures_hash") != self._structures_hash():
             return False
-        return True
+        phase = entry.get("phase")
+        return phase is None or phase == "02.collected"
 
     def collect_results(self, step_filter=None):
         from .exporter import export_step_dataset, package_datasets
@@ -138,6 +144,7 @@ class Workflow:
                 print(f"  skip (already done): {defn['name']}")
                 continue
 
+            phase = self._get_phase(defn["name"])
             step = steps.create_step(defn, self.param, self.mcfg, self.ctx)
             pfx = self.mcfg.get("job_name_prefix")
             label = f"{pfx}_{step.name}" if pfx else step.name
@@ -147,7 +154,7 @@ class Workflow:
             if not tasks:
                 print(f"  Nothing to do for {step.name}")
                 step.collect()
-                self._save_record(step.name)
+                self._save_phase(step.name, "02.collected")
                 continue
 
             print(f"  Tasks: {len(tasks)}")
@@ -156,6 +163,9 @@ class Workflow:
                 for t in tasks:
                     print(f"    [{t.task_work_path}] {t.command}")
                 continue
+
+            if phase is None:
+                self._save_phase(step.name, "00.prepared")
 
             base = Path(self.param["_base"])
             self.machine.context.temp_remote_root = str(base / "tmp" / step.name)
@@ -179,17 +189,23 @@ class Workflow:
                 task_list=tasks,
             )
 
-            sub.generate_jobs()
-            sub.try_recover_from_json()
-            sub.update_submission_state()
-
-            if not sub.check_all_finished():
-                sub.upload_jobs()
-                sub.handle_unexpected_submission_state()
-                sub.submission_to_json()
-                time.sleep(1)
+            if phase in (None, "00.prepared"):
+                sub.generate_jobs()
                 sub.update_submission_state()
-                sub.check_all_finished()
+
+                if not sub.check_all_finished():
+                    sub.upload_jobs()
+                    sub.handle_unexpected_submission_state()
+                    self._save_phase(step.name, "01.submitted")
+                    sub.submission_to_json()
+                    time.sleep(1)
+                    sub.update_submission_state()
+                    sub.check_all_finished()
+                    sub.handle_unexpected_submission_state()
+
+            elif phase == "01.submitted":
+                sub.try_recover_from_json()
+                sub.update_submission_state()
                 sub.handle_unexpected_submission_state()
 
             total_jobs = len(sub.belonging_jobs)
@@ -227,7 +243,7 @@ class Workflow:
 
             self._cleanup_step(sub, step.name)
             step.collect()
-            self._save_record(step.name)
+            self._save_phase(step.name, "02.collected")
 
             if defn.get("type") in ("scf", "scf-restart"):
                 from .exporter import export_step_dataset

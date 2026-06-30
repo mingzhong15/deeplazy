@@ -14,43 +14,47 @@ def export_step_dataset(step_name, *, structures_file, work_dir):
 
     structures = utils.read_structures(structures_file)
     exported = 0
-    skipped = []
+    skipped_h = 0
+    missed_olp = 0
 
     for sid, poscar_path in structures:
         out_dir = ds_dir / sid
-        if (out_dir / "hamiltonian.h5").exists():
+        ham_dst = out_dir / "hamiltonian.h5"
+        olp_dst = out_dir / "overlap.h5"
+        olp_src_file = olp_src / sid / "overlap.h5"
+
+        if ham_dst.exists() and olp_dst.exists():
             exported += 1
             continue
 
-        h = utils.find_final_hamiltonian(step_src / sid)
-        if not h:
-            skipped.append(sid)
-            continue
+        if not ham_dst.exists():
+            h = utils.find_final_hamiltonian(step_src / sid)
+            if not h:
+                skipped_h += 1
+                continue
+            out_dir.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(poscar_path, out_dir / "POSCAR")
+            shutil.copy2(h, ham_dst)
+            info_src = olp_src / sid / "info.json"
+            if info_src.exists():
+                shutil.copy2(info_src, out_dir / "info.json")
+            else:
+                _write_minimal_info(out_dir / "info.json")
 
-        overlap = olp_src / sid / "overlap.h5"
-        if not overlap.exists():
-            skipped.append(sid)
-            continue
-
-        out_dir.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(poscar_path, out_dir / "POSCAR")
-        shutil.copy2(h, out_dir / "hamiltonian.h5")
-        shutil.copy2(overlap, out_dir / "overlap.h5")
-
-        info_src = olp_src / sid / "info.json"
-        if info_src.exists():
-            shutil.copy2(info_src, out_dir / "info.json")
+        if olp_src_file.exists():
+            shutil.copy2(olp_src_file, olp_dst)
         else:
-            _write_minimal_info(out_dir / "info.json")
+            missed_olp += 1
 
         exported += 1
 
-    if skipped:
-        print(f"  [export] {len(skipped)} skipped (no overlap.h5 or hamiltonian)")
-
+    if skipped_h:
+        print(f"  [export] {skipped_h} skipped (no hamiltonian)")
+    if missed_olp:
+        print(f"  [export] WARNING: {missed_olp} structures missing overlap.h5")
     if exported:
         _write_features_json(ds_dir, structures)
-        print(f"  [export] {step_name}: {exported} structures, {len(skipped)} skipped")
+        print(f"  [export] {step_name}: {exported} structures")
 
     return exported
 

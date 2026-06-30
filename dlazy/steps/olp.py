@@ -41,23 +41,29 @@ class OLPStep:
 
         structures = utils.read_structures(self.param["structures"])
 
-        # Generation pass: create openmx_in.dat for all pending structures
+        total = len(structures)
+        done = 0
+        n_gen = 0
+        n_skip = 0
         pending = []
+
         for sid, poscar in structures:
+            done += 1
             step_dir = work_dir / "restart" / self.name / sid
             step_dir.mkdir(parents=True, exist_ok=True)
 
             overlap_file = step_dir / "overlap.h5"
             if not force and overlap_file.exists():
-                print(f"  skip (done): {sid}/{self.name}")
+                n_skip += 1
+                utils.update_progress(done, total, self.name)
                 continue
 
             if gen:
                 gen.generate(str(poscar), output_dir=str(step_dir),
                              max_iter=1, scf_criterion=1e-3)
-                print(f"  gen: {sid}/{self.name}")
+                n_gen += 1
             else:
-                print(f"  WARNING: no generator for {sid}/{self.name}")
+                print(f"\n  WARNING: no generator for {sid}/{self.name}")
                 continue
 
             dat_path = step_dir / "openmx_in.dat"
@@ -66,9 +72,13 @@ class OLPStep:
                     f.write("\nscf.OverlapOnly     On\n")
 
             pending.append(sid)
+            utils.update_progress(done, total, self.name)
+
+        print()
+        if n_gen or n_skip:
+            print(f"  [{self.name}] {n_gen} gen, {n_skip} skip")
 
         if not pending:
-            print(f"  Nothing to do for {self.name}")
             return []
 
         # Copy parallel worker script to work_dir

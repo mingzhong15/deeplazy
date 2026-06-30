@@ -70,7 +70,14 @@ class SCFStep:
         structures = utils.read_structures(self.param["structures"])
         prev_results = self.ctx.get("_final_h")
 
+        total = len(structures)
+        done = 0
+        n_gen = 0
+        n_link = 0
+        n_skip = 0
+
         for sid, poscar in structures:
+            done += 1
             step_dir = work_dir / "restart" / self.name / sid
             step_dir.mkdir(parents=True, exist_ok=True)
 
@@ -83,49 +90,53 @@ class SCFStep:
                 if init_source == "deeph" and pred_link.is_symlink() and std_path.exists():
                     stale = pred_link.lstat().st_mtime_ns > std_path.stat().st_mtime_ns
                 if not stale:
-                    print(f"  skip (done): {sid}/{self.name}")
+                    n_skip += 1
+                    utils.update_progress(done, total, self.name)
                     continue
 
-            if gen:
-                gen.generate(str(poscar), output_dir=str(step_dir),
-                             max_iter=self._get_openmx("max_iter", 200),
-                             mixing_type=self._get_openmx("mixing_type", "RMM-DIISH"),
-                             scf_criterion=self._get_openmx("scf_criterion", 1e-6),
-                             startpulay=self._get_openmx("startpulay",
-                                                          openmx_defaults.get("startpulay", 3)),
-                             mixing_history=self._get_openmx("mixing_history",
-                                                             openmx_defaults.get("mixing_history", 30)),
-                             init_mixing_weight=openmx_defaults.get("init_mixing_weight", 0.3),
-                             max_mixing_weight=openmx_defaults.get("max_mixing_weight", 0.8),
-                             detailed_output=openmx_defaults.get("detailed_output", True),
-                             step1_mix_h=openmx_defaults.get("step1_mix_h", False))
-                inp_path = step_dir / "openmx_in.dat"
-                if inp_path.exists() and "scf.OverlapOnly" not in inp_path.read_text():
-                    with open(inp_path, "a") as f:
-                        f.write("scf.OverlapOnly     Off\n")
-                print(f"  gen: {sid}/{self.name}")
-            else:
-                print(f"  WARNING: no generator for {sid}/{self.name}")
+            inp_path = step_dir / "openmx_in.dat"
+            if not inp_path.exists():
+                if gen:
+                    gen.generate(str(poscar), output_dir=str(step_dir),
+                                 max_iter=self._get_openmx("max_iter", 200),
+                                 mixing_type=self._get_openmx("mixing_type", "RMM-DIISH"),
+                                 scf_criterion=self._get_openmx("scf_criterion", 1e-6),
+                                 startpulay=self._get_openmx("startpulay",
+                                                              openmx_defaults.get("startpulay", 3)),
+                                 mixing_history=self._get_openmx("mixing_history",
+                                                                  openmx_defaults.get("mixing_history", 30)),
+                                 init_mixing_weight=openmx_defaults.get("init_mixing_weight", 0.3),
+                                 max_mixing_weight=openmx_defaults.get("max_mixing_weight", 0.8),
+                                 detailed_output=openmx_defaults.get("detailed_output", True),
+                                 step1_mix_h=openmx_defaults.get("step1_mix_h", False))
+                    if inp_path.exists() and "scf.OverlapOnly" not in inp_path.read_text():
+                        with open(inp_path, "a") as f:
+                            f.write("scf.OverlapOnly     Off\n")
+                    n_gen += 1
+                else:
+                    print(f"\n  WARNING: no generator for {sid}/{self.name}")
 
-            if init_source == "deeph":
+            if init_source == "none":
+                pass
+            elif init_source == "deeph":
                 deeph_dir = self._resolve_deeph_dir()
                 if not deeph_dir:
                     if check_pred:
-                        print(f"  ERROR: no inference output dir, cannot initialize {sid}/{self.name}")
+                        print(f"\n  ERROR: no inference output dir, cannot initialize {sid}/{self.name}")
                         continue
-                    print(f"  WARNING: no inference output dir for {sid}/{self.name}, cold-start SCF")
+                    print(f"\n  WARNING: no inference output dir for {sid}/{self.name}, cold-start SCF")
                 else:
                     src = (Path(deeph_dir) / sid / "hamiltonian_pred.h5").resolve()
                     if not src.exists():
                         if check_pred:
-                            print(f"  ERROR: {src} not found, cannot initialize {sid}/{self.name}")
+                            print(f"\n  ERROR: {src} not found, cannot initialize {sid}/{self.name}")
                             continue
-                        print(f"  WARNING: {src} not found for {sid}/{self.name}, cold-start SCF")
+                        print(f"\n  WARNING: {src} not found for {sid}/{self.name}, cold-start SCF")
                     else:
                         if pred_link.is_symlink() or pred_link.exists():
                             pred_link.unlink()
                         pred_link.symlink_to(src)
-                        print(f"  link deeph: {sid}/{self.name}")
+                        n_link += 1
 
             elif init_source == "prev":
                 src_path = None
@@ -137,7 +148,7 @@ class SCFStep:
                     if pred_link.is_symlink() or pred_link.exists():
                         pred_link.unlink()
                     pred_link.symlink_to(Path(src_path).resolve())
-                    print(f"  link prev: {sid}/{self.name}")
+                    n_link += 1
 
             work_path = Path("restart") / self.name / sid
             forward = ["openmx_in.dat"]
@@ -150,6 +161,12 @@ class SCFStep:
                 backward_files=["openmx.std", "hamiltonians_step*.h5"],
                 outlog="openmx.out",
             ))
+
+            utils.update_progress(done, total, self.name)
+
+        print()
+        if n_gen or n_link or n_skip:
+            print(f"  [{self.name}] {n_gen} gen, {n_link} link, {n_skip} skip")
 
         return tasks
 

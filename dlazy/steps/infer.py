@@ -1,5 +1,5 @@
 import json
-import subprocess
+import shutil
 from datetime import datetime
 from pathlib import Path
 
@@ -177,14 +177,15 @@ class DeepHStep:
         local_dft = local_inputs / "dft"
         structures = utils.read_structures(self.param["structures"])
 
-        if local_inputs.is_symlink() or local_inputs.is_file():
-            local_inputs.unlink()
-        elif local_inputs.exists():
-            subprocess.run(["rm", "-rf", str(local_inputs)])
-        local_dft.mkdir(parents=True, exist_ok=True)
+        local_inputs.mkdir(parents=True, exist_ok=True)
 
+        tmp = local_dft.parent / ".dft_tmp"
+        shutil.rmtree(tmp, ignore_errors=True)
+        tmp.mkdir(parents=True)
+
+        built = 0
         for sid, poscar in structures:
-            struct_dir = local_dft / sid
+            struct_dir = tmp / sid
 
             olp_dir = work_dir / "restart" / "olp" / sid
             if not (olp_dir / "overlap.h5").exists():
@@ -212,17 +213,25 @@ class DeepHStep:
                 except Exception:
                     pass
 
+            built += 1
+
         inp = self._resolve("inputs_dir")
         if inp:
             for sid, _ in structures:
                 for name in ("overlap.h5", "info.json"):
-                    target = local_dft / sid / name
+                    target = tmp / sid / name
                     if not target.exists():
                         alt = Path(inp) / sid / name
                         if alt.exists():
                             target.symlink_to(alt)
 
-        print(f"  build inputs: {local_inputs} ({len(structures)} structures)")
+        shutil.rmtree(local_dft, ignore_errors=True)
+        local_dft.mkdir(parents=True, exist_ok=True)
+        for d in tmp.iterdir():
+            d.rename(local_dft / d.name)
+        shutil.rmtree(tmp, ignore_errors=True)
+
+        print(f"  build inputs: {local_dft} ({built} structures)")
 
         model_dir = self._resolve("model")
         if model_dir is None:
