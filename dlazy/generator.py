@@ -5,6 +5,48 @@ from pathlib import Path
 from jinja2 import Environment, FileSystemLoader
 from pymatgen.core.structure import Structure
 
+# === per-step output alias → canonical (Input_std.c:1126-1138) ===
+_STEP_KEYWORD_MAP = {
+    "hamiltonianstep":   "HamiltonianStep",
+    "hamiltonian":       "HamiltonianStep",
+    "h":                 "HamiltonianStep",
+    "densitymatrixstep": "DensityMatrixStep",
+    "densitymatrix":     "DensityMatrixStep",
+    "dm":                "DensityMatrixStep",
+    "chargedensitystep": "ChargeDensityStep",
+    "chargedensity":     "ChargeDensityStep",
+    "rho":               "ChargeDensityStep",
+    "eigenvaluestep":    "EigenvalueStep",
+    "eigenvalue":        "EigenvalueStep",
+    "eigen":             "EigenvalueStep",
+    "energystep":        "EnergyStep",
+    "energy":            "EnergyStep",
+    "e":                 "EnergyStep",
+    "forcestep":         "ForceStep",
+    "force":             "ForceStep",
+    "f":                 "ForceStep",
+}
+
+
+def _resolve_step_output(step_output):
+    validated = []
+    invalid = []
+    for raw in step_output:
+        canon = _STEP_KEYWORD_MAP.get(str(raw).strip().lower())
+        if canon is None:
+            invalid.append(raw)
+        elif canon not in validated:
+            validated.append(canon)
+    if invalid:
+        canon = sorted(set(_STEP_KEYWORD_MAP.values()))
+        aliases = sorted(set(k for k in _STEP_KEYWORD_MAP
+                             if k not in set(v.lower() for v in _STEP_KEYWORD_MAP.values())))
+        raise ValueError(
+            f"无效的 step_output: {invalid}\n"
+            f"  合法关键字: {canon}\n"
+            f"  可用别名: {aliases}")
+    return validated
+
 
 class ParseVaspPoscar:
     def __init__(self, poscar_content):
@@ -225,7 +267,8 @@ class OpenMXGenerator:
                  mixing_type="RMM-DIISH",
                  mixing_history=30, startpulay=3,
                  init_mixing_weight=0.3, max_mixing_weight=0.8,
-                 detailed_output=True, step1_mix_h=False):
+                 detailed_output=False, step1_mix_h=False,
+                 step_output=None):
         with open(poscar_path) as f:
             poscar_content = f.read()
 
@@ -307,7 +350,13 @@ class OpenMXGenerator:
         content = template.render(**params)
 
         extra = []
-        extra.append(f"scf.DetailedOutput     {'On' if detailed_output else 'Off'}")
+        if detailed_output:
+            extra.append("scf.DetailedOutput     On")
+            if step_output:
+                for key in _resolve_step_output(step_output):
+                    extra.append(f"scf.{key}     On")
+        else:
+            extra.append("scf.DetailedOutput     Off")
         if step1_mix_h:
             extra.append("scf.Step1MixH     On")
         if extra:

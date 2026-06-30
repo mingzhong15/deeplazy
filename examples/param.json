@@ -10,7 +10,7 @@
     "mixing_history": 30,
     "init_mixing_weight": 0.3,
     "max_mixing_weight": 0.8,
-    "detailed_output": true,
+    "detailed_output": false,
     "step1_mix_h": false
   },
   "steps": [

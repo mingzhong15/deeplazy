@@ -107,8 +107,9 @@ class SCFStep:
                                                                   openmx_defaults.get("mixing_history", 30)),
                                  init_mixing_weight=openmx_defaults.get("init_mixing_weight", 0.3),
                                  max_mixing_weight=openmx_defaults.get("max_mixing_weight", 0.8),
-                                 detailed_output=openmx_defaults.get("detailed_output", True),
-                                 step1_mix_h=openmx_defaults.get("step1_mix_h", False))
+                                 detailed_output=openmx_defaults.get("detailed_output", False),
+                                 step1_mix_h=openmx_defaults.get("step1_mix_h", False),
+                                 step_output=self._get_openmx("step_output"))
                     if inp_path.exists() and "scf.OverlapOnly" not in inp_path.read_text():
                         with open(inp_path, "a") as f:
                             f.write("scf.OverlapOnly     Off\n")
