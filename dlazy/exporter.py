@@ -106,10 +106,10 @@ def package_datasets(work_dir):
         tgz = ds_base / f"{d.name}.tar.gz"
         if tgz.exists() and tgz.stat().st_mtime > d.stat().st_mtime:
             continue
-        print(f"  [package] {d.name}.tar.gz")
+        print(end=f"  [package] {d.name}.tar.gz ... ")
         with tarfile.open(tgz, "w:gz") as tf:
             tf.add(d, arcname=d.name)
-        print(f"             {_human_size(tgz.stat().st_size)}")
+        print(_human_size(tgz.stat().st_size))
 
 
 def _write_minimal_info(path):
