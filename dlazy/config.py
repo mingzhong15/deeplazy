@@ -13,12 +13,11 @@ def load_param(path):
             param[key] = str((base / param[key]).resolve())
     wd = param.get("work_dir")
     if wd:
-        param["_work_dir_rel"] = wd
         param["work_dir"] = str((base / wd).resolve())
-    dm = param.get("deeph_model")
-    if dm:
-        param["deeph_model"] = str((base / dm).resolve())
     param["_base"] = str(base)
+    param.setdefault("mode", "easy")
+    if param["mode"] not in ("easy", "massive"):
+        raise ValueError(f"Unknown mode: {param['mode']!r}, must be 'easy' or 'massive'")
     return param
 
 
@@ -30,7 +29,7 @@ def load_machine(path):
     resources = Resources.load_from_dict(cfg["resources"])
 
     mcfg = {}
-    for section in ("olp", "infer", "fp"):
+    for section in ("olp", "infer", "fp", "deeph"):
         sec = dict(cfg.get(section, {}))
         for key in ("executable", "data_path", "infer_toml"):
             if key in sec:
@@ -38,6 +37,42 @@ def load_machine(path):
         mcfg[section] = sec
 
     mcfg["job_name_prefix"] = cfg.get("job_name_prefix")
+    mcfg["massive"] = dict(cfg.get("massive", {}))
+
+    return machine, resources, mcfg
+
+
+def load_machine_massive(path):
+    """Load machine.json for massive mode (batch_type forced to SlurmJobArray).
+
+    SlurmJobArray is a dpdispatcher built-in (registered via __init_subclass__).
+    Resources.kwargs.slurm_job_size defaults to 1, meaning each Task becomes
+    one array element. dlazy steps build one Task per K-structure manifest,
+    so 1 array element runs K structures via dlazy/_runner.py.
+    """
+    with open(path) as f:
+        cfg = json.load(f)
+    base = Path(path).resolve().parent
+
+    machine_dict = dict(cfg["machine"])
+    machine_dict["batch_type"] = "SlurmJobArray"
+    machine = Machine.load_from_dict(machine_dict)
+
+    res_dict = dict(cfg["resources"])
+    res_dict.setdefault("kwargs", {})
+    res_dict["kwargs"].setdefault("slurm_job_size", 1)
+    resources = Resources.load_from_dict(res_dict)
+
+    mcfg = {}
+    for section in ("olp", "infer", "fp", "deeph"):
+        sec = dict(cfg.get(section, {}))
+        for key in ("executable", "data_path", "infer_toml"):
+            if key in sec:
+                sec[key] = str((base / sec[key]).resolve())
+        mcfg[section] = sec
+
+    mcfg["job_name_prefix"] = cfg.get("job_name_prefix")
+    mcfg["massive"] = dict(cfg.get("massive", {}))
 
     return machine, resources, mcfg
 
@@ -56,8 +91,5 @@ def find_latest_deeph_dir(search_dirs):
 
 
 def resolve_openmx_generator():
-    try:
-        from dlazy.generator import OpenMXGenerator as Gen
-    except ImportError:
-        Gen = None
+    from dlazy.generator import OpenMXGenerator as Gen
     return Gen

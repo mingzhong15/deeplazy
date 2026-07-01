@@ -13,7 +13,10 @@ from . import config, steps
 class Workflow:
     def __init__(self, param_path, machine_path):
         self.param = config.load_param(param_path)
-        self.machine, self.resources, self.mcfg = config.load_machine(machine_path)
+        if self.param.get("mode") == "massive":
+            self.machine, self.resources, self.mcfg = config.load_machine_massive(machine_path)
+        else:
+            self.machine, self.resources, self.mcfg = config.load_machine(machine_path)
         self.ctx = {}
 
         base = Path(self.param["_base"])
@@ -178,14 +181,27 @@ class Workflow:
 
             self._set_job_name(step.name)
 
-            # Apply per-step resource overrides from mcfg
-            step_type = defn.get("type")
-            step_cfg = self.mcfg.get(step_type, {})
+            # Apply per-step resource overrides from mcfg (by step.type_alias)
+            step_cfg = self.mcfg.get(step.type_alias(), {})
             for key in ("cpus_per_task", "group_size"):
                 if key in step_cfg:
                     old = getattr(self.resources, key, None)
                     setattr(self.resources, key, step_cfg[key])
                     print(f"  resource: {key} = {step_cfg[key]} (was {old})")
+
+            # In massive mode, group_size default = total tasks so all
+            # manifest Tasks go into a single sbatch (--array=0-N).
+            # SlurmJobArray was loaded in Workflow.__init__; its
+            # resources.kwargs.slurm_job_size=1 makes each Task (each
+            # manifest of K sids) one array element.
+            # TODO: support massive.max_array_parallel via patching the
+            # generated --array line with `%N' throttle suffix; for now
+            # the scheduler queues all array elements naturally.
+            if self.param.get("mode") == "massive":
+                if not tasks:
+                    self.resources.group_size = 1
+                elif "group_size" not in step_cfg:
+                    self.resources.group_size = len(tasks)
 
             sub = Submission(
                 work_base=".",
