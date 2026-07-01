@@ -3,6 +3,11 @@ import sys
 from pathlib import Path
 
 
+def natural_key(path: Path):
+    """Sort key that splits numeric chunks so step10 sorts after step2."""
+    return [int(t) if t.isdigit() else t for t in re.split(r"(\d+)", str(path.name))]
+
+
 def read_structures(path, base=None):
     result = []
     if base is None:
@@ -24,7 +29,8 @@ def read_structures(path, base=None):
 
 def find_final_hamiltonian(work_dir):
     """Return the highest step number hamiltonians_step*.h5, or None."""
-    step_files = sorted(Path(work_dir).glob("hamiltonians_step*.h5"))
+    step_files = sorted(Path(work_dir).glob("hamiltonians_step*.h5"),
+                        key=natural_key)
     return str(step_files[-1]) if step_files else None
 
 

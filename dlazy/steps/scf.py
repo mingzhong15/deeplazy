@@ -45,13 +45,23 @@ class SCFStep:
         return dlazy_config.find_latest_deeph_dir(candidates)
 
     def _find_prev_hamiltonian(self, work_dir, sid):
+        """Find the latest hamiltonian from a previous SCF-type step in param order.
+
+        Uses param.json `steps` ordering (not lexicographic step name) so
+        e10/e2-style names are handled correctly.
+        """
         restart = Path(work_dir) / "restart"
         if not restart.is_dir():
             return None
-        prev_dirs = sorted(d for d in restart.iterdir() if d.is_dir() and d.name < self.name)
-        if not prev_dirs:
+        prev_name = None
+        for s in self.param.get("steps", []):
+            if s.get("name") == self.name:
+                break
+            if s.get("type") in ("scf", "scf-restart"):
+                prev_name = s.get("name")
+        if not prev_name:
             return None
-        h = utils.find_final_hamiltonian(prev_dirs[-1] / sid)
+        h = utils.find_final_hamiltonian(restart / prev_name / sid)
         return h
 
     def _prepare(self, check_pred):
