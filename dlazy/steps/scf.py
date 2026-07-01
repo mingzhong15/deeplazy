@@ -1,4 +1,6 @@
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Optional
 
 from dpdispatcher import Task
 
@@ -6,6 +8,20 @@ from .. import config as dlazy_config
 from .. import utils
 from . import register_step
 from .base import Step
+
+
+@dataclass
+class SidInput:
+    """One structure's SCF input preparation context (multiprocessing-safe)."""
+    sid: str
+    poscar: str
+    work_dir: Path
+    gen: object               # OpenMXGenerator | None
+    openmx_defaults: dict
+    init_source: str          # "deeph" | "prev" | "none"
+    deeph_dir: Optional[str]
+    prev_results: Optional[dict]
+    check_pred: bool
 
 
 @register_step("scf")
@@ -62,15 +78,15 @@ class SCFStep(Step):
         h = utils.find_final_hamiltonian(restart / prev_name / sid)
         return h
 
-    def _prepare_one(self, args):
+    def _prepare_one(self, inp: SidInput):
         """Worker fn for multiprocessing: generate openmx_in.dat for one sid.
 
-        Returns (sid, gen_ok). Side effect: writes openmx_in.dat to step_dir.
+        Returns (sid, status). status: 'gen' | 'gen_link' | 'skip' |
+        'skip_link' | 'nogen' | 'err_deeph_dir' | 'err_deeph_file:<path>'.
+        Side effect: writes openmx_in.dat and creates hamiltonian_pred.h5
+        symlink to step_dir.
         """
-        sid, poscar, work_dir, gen, openmx_defaults, init_source, \
-            deeph_dir, prev_results, check_pred = args
-
-        step_dir = Path(work_dir) / "restart" / self.name / sid
+        step_dir = Path(inp.work_dir) / "restart" / self.name / inp.sid
         step_dir.mkdir(parents=True, exist_ok=True)
         pred_link = step_dir / "hamiltonian_pred.h5"
         inp_path = step_dir / "openmx_in.dat"
@@ -81,62 +97,62 @@ class SCFStep(Step):
         # at execution time so the submission_hash stays stable.
         if not self._is_massive() and utils.check_finished(std_path):
             stale = False
-            if init_source == "deeph" and pred_link.is_symlink() and std_path.exists():
+            if inp.init_source == "deeph" and pred_link.is_symlink() and std_path.exists():
                 stale = pred_link.lstat().st_mtime_ns > std_path.stat().st_mtime_ns
             if not stale:
-                return sid, "skip"
+                return inp.sid, "skip"
 
         if not inp_path.exists():
-            if gen:
-                gen.generate(str(poscar), output_dir=str(step_dir),
+            if inp.gen:
+                inp.gen.generate(str(inp.poscar), output_dir=str(step_dir),
                              max_iter=self._get_openmx("max_iter", 200),
                              mixing_type=self._get_openmx("mixing_type", "RMM-DIISH"),
                              scf_criterion=self._get_openmx("scf_criterion", 1e-6),
                              startpulay=self._get_openmx("startpulay",
-                                                          openmx_defaults.get("startpulay", 3)),
+                                                          inp.openmx_defaults.get("startpulay", 3)),
                              mixing_history=self._get_openmx("mixing_history",
-                                                              openmx_defaults.get("mixing_history", 30)),
-                             init_mixing_weight=openmx_defaults.get("init_mixing_weight", 0.3),
-                             max_mixing_weight=openmx_defaults.get("max_mixing_weight", 0.8),
-                             detailed_output=openmx_defaults.get("detailed_output", False),
-                             step1_mix_h=openmx_defaults.get("step1_mix_h", False),
+                                                              inp.openmx_defaults.get("mixing_history", 30)),
+                             init_mixing_weight=inp.openmx_defaults.get("init_mixing_weight", 0.3),
+                             max_mixing_weight=inp.openmx_defaults.get("max_mixing_weight", 0.8),
+                             detailed_output=inp.openmx_defaults.get("detailed_output", False),
+                             step1_mix_h=inp.openmx_defaults.get("step1_mix_h", False),
                              step_output=self._get_openmx("step_output"))
                 if inp_path.exists() and "scf.OverlapOnly" not in inp_path.read_text():
                     with open(inp_path, "a") as f:
                         f.write("scf.OverlapOnly     Off\n")
-                return sid, "gen"
-            return sid, "nogen"
+            else:
+                return inp.sid, "nogen"
 
         # Link hamiltonian_pred.h5 from deeph or prev step
-        if init_source == "none":
-            return sid, "skip_link"
-        elif init_source == "deeph":
-            if not deeph_dir:
-                if check_pred:
-                    return sid, "err_deeph_dir"
-                return sid, "skip_link"
-            src = (Path(deeph_dir) / sid / "hamiltonian_pred.h5").resolve()
+        if inp.init_source == "none":
+            return inp.sid, "skip_link"
+        elif inp.init_source == "deeph":
+            if not inp.deeph_dir:
+                if inp.check_pred:
+                    return inp.sid, "err_deeph_dir"
+                return inp.sid, "skip_link"
+            src = (Path(inp.deeph_dir) / inp.sid / "hamiltonian_pred.h5").resolve()
             if not src.exists():
-                if check_pred:
-                    return sid, f"err_deeph_file:{src}"
-                return sid, "skip_link"
+                if inp.check_pred:
+                    return inp.sid, f"err_deeph_file:{src}"
+                return inp.sid, "skip_link"
             if pred_link.is_symlink() or pred_link.exists():
                 pred_link.unlink()
             pred_link.symlink_to(src)
-            return sid, "link"
-        elif init_source == "prev":
+            return inp.sid, "link"
+        elif inp.init_source == "prev":
             src_path = None
-            if prev_results:
-                src_path = prev_results.get(sid)
+            if inp.prev_results:
+                src_path = inp.prev_results.get(inp.sid)
             if not src_path or not Path(src_path).exists():
-                src_path = self._find_prev_hamiltonian(work_dir, sid)
+                src_path = self._find_prev_hamiltonian(inp.work_dir, inp.sid)
             if src_path and Path(src_path).exists():
                 if pred_link.is_symlink() or pred_link.exists():
                     pred_link.unlink()
                 pred_link.symlink_to(Path(src_path).resolve())
-                return sid, "link"
-            return sid, "skip_link"
-        return sid, "skip_link"
+                return inp.sid, "link"
+            return inp.sid, "skip_link"
+        return inp.sid, "skip_link"
 
     def _prepare(self, check_pred):
         work_dir = Path(self.param["work_dir"])
@@ -161,22 +177,22 @@ class SCFStep(Step):
             structures = [(sid, p) for sid, p in structures if sid in sid_filter]
             print(f"  [{self.name}] sid filter: {len(structures)} of {len(sid_filter)} requested")
 
-        args_list = [(sid, poscar, work_dir, gen, openmx_defaults,
-                      init_source, deeph_dir, prev_results, check_pred)
-                     for sid, poscar in structures]
+        inputs = [SidInput(sid=sid, poscar=poscar, work_dir=work_dir, gen=gen,
+                            openmx_defaults=openmx_defaults, init_source=init_source,
+                            deeph_dir=deeph_dir, prev_results=prev_results,
+                            check_pred=check_pred)
+                  for sid, poscar in structures]
 
         # Generate inputs: parallel in massive mode, serial in easy mode.
         # multiprocessing is safe here because gen.generate is CPU-bound
-        # jinja2 rendering and does not mutate shared state.
-        results = []
-        if self._is_massive() and gen and len(args_list) > 1:
+        # jinja2 rendering and SidInput is a picklable dataclass.
+        if self._is_massive() and gen and len(inputs) > 1:
             import multiprocessing
-            nproc = min(8, multiprocessing.cpu_count(), len(args_list))
+            nproc = min(8, multiprocessing.cpu_count(), len(inputs))
             with multiprocessing.Pool(nproc) as pool:
-                results = pool.map(self._prepare_one, args_list)
+                results = pool.map(self._prepare_one, inputs)
         else:
-            for a in args_list:
-                results.append(self._prepare_one(a))
+            results = [self._prepare_one(i) for i in inputs]
 
         # Tally and print progress
         counts = {}

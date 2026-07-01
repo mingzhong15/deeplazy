@@ -1,4 +1,5 @@
 import json
+from dataclasses import dataclass
 from pathlib import Path
 
 from dpdispatcher import Task
@@ -7,6 +8,16 @@ from .. import config as dlazy_config
 from .. import utils
 from . import register_step
 from .base import Step
+
+
+@dataclass
+class OlpInput:
+    """One OLP structure's input preparation context."""
+    sid: str
+    poscar: str
+    work_dir: Path
+    gen: object        # OpenMXGenerator | None
+    force: bool
 
 
 @register_step("olp")
@@ -21,29 +32,28 @@ class OLPStep(Step):
     def type_alias(self):
         return "olp"
 
-    def _generate_one(self, args):
+    def _generate_one(self, inp: OlpInput):
         """Worker fn for one OLP structure: generate openmx_in.dat with OverlapOnly.
 
         Returns (sid, status). status: 'gen' | 'skip' | 'nogen'.
         """
-        sid, poscar, work_dir, gen, force = args
-        step_dir = Path(work_dir) / "restart" / self.name / sid
+        step_dir = Path(inp.work_dir) / "restart" / self.name / inp.sid
         step_dir.mkdir(parents=True, exist_ok=True)
         overlap_file = step_dir / "overlap.h5"
 
-        if not force and overlap_file.exists():
-            return sid, "skip"
+        if not inp.force and overlap_file.exists():
+            return inp.sid, "skip"
 
-        if not gen:
-            return sid, "nogen"
+        if not inp.gen:
+            return inp.sid, "nogen"
 
-        gen.generate(str(poscar), output_dir=str(step_dir),
+        inp.gen.generate(str(inp.poscar), output_dir=str(step_dir),
                      max_iter=1, scf_criterion=1e-3)
         dat_path = step_dir / "openmx_in.dat"
         if dat_path.exists():
             with open(dat_path, "a") as f:
                 f.write("\nscf.OverlapOnly     On\n")
-        return sid, "gen"
+        return inp.sid, "gen"
 
     def prepare(self):
         work_dir = Path(self.param["work_dir"])
@@ -62,16 +72,17 @@ class OLPStep(Step):
         if sid_filter is not None:
             structures = [(sid, p) for sid, p in structures if sid in sid_filter]
             print(f"  [{self.name}] sid filter: {len(structures)} of {len(sid_filter)} requested")
-        args_list = [(sid, poscar, work_dir, gen, force) for sid, poscar in structures]
+        inputs = [OlpInput(sid=sid, poscar=poscar, work_dir=work_dir,
+                            gen=gen, force=force) for sid, poscar in structures]
 
         # Generate inputs in parallel in massive mode (or serial in easy mode)
-        if self._is_massive() and gen and len(args_list) > 1:
+        if self._is_massive() and gen and len(inputs) > 1:
             import multiprocessing
-            nproc = min(8, multiprocessing.cpu_count(), len(args_list))
+            nproc = min(8, multiprocessing.cpu_count(), len(inputs))
             with multiprocessing.Pool(nproc) as pool:
-                results = pool.map(self._generate_one, args_list)
+                results = pool.map(self._generate_one, inputs)
         else:
-            results = [self._generate_one(a) for a in args_list]
+            results = [self._generate_one(i) for i in inputs]
 
         counts = {}
         for sid, status in results:
@@ -100,7 +111,8 @@ class OLPStep(Step):
                 forward_extra=[f"restart/{self.name}/*/openmx_in.dat"],
                 backward_files=[f"restart/{self.name}/*/overlap.h5",
                                 f"restart/{self.name}/*/info.json",
-                                f"restart/{self.name}/*/openmx.std"],
+                                f"restart/{self.name}/*/openmx.std",
+                                f"restart/{self.name}/_manifest_*.json"],
                 outlog="olp_runner.out",
             )
 
@@ -133,7 +145,6 @@ class OLPStep(Step):
                 forward_files=["_olp_parallel.py", f"restart/{self.name}/{manifest_name}"],
                 backward_files=[f"restart/{self.name}/*/overlap.h5",
                                 f"restart/{self.name}/*/info.json",
-                                f"restart/{self.name}/*/openmx.out",
                                 f"restart/{self.name}/*/openmx.std",
                                 f"restart/{self.name}/_olp_manifest_*.json"],
                 outlog="_olp_parallel.out",

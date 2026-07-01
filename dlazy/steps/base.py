@@ -6,44 +6,13 @@ from pathlib import Path
 from dpdispatcher import Task
 
 
-class Step(ABC):
-    """Base class for all workflow steps.
+class MassiveMixin:
+    """Massive-mode helpers used only when param.mode == 'massive'.
 
-    Subclasses declare capabilities via class attributes:
-        runner_mode: "serial" | "parallel" | "single"
-            - "single"  : easy mode default, 1 task = 1 structure (legacy)
-            - "serial"  : massive mode, 1 array element runs K structures sequentially
-            - "parallel": massive mode, 1 array element runs K structures via Pool(K)
-        produces_dataset: True if collect() yields DeepH training data
-                          (engine exports these steps automatically)
+    Separated as a mixin so Step subclasses stay focused on step business
+    logic; the mixin holds the manifest/runner-install machinery reused
+    across all step types. Easy-mode code paths never touch these methods.
     """
-
-    name: str = ""
-    type: str = ""
-    runner_mode: str = "single"
-    produces_dataset: bool = False
-
-    def __init__(self, defn, param, mcfg, ctx):
-        self.defn = defn
-        self.param = param
-        self.mcfg = mcfg
-        self.ctx = ctx
-        self.name = defn["name"]
-
-    @abstractmethod
-    def prepare(self):
-        """Return list of dpdispatcher Task, or empty list if nothing to do.
-
-        In easy mode (default): each Task typically wraps one structure.
-        In massive mode: each Task wraps a manifest of K structures, run
-        via dlazy/_runner.py on a single Slurm array element.
-        """
-
-    @abstractmethod
-    def collect(self):
-        """Post-process after all tasks finish. Update ctx."""
-
-    # ── massive-mode helpers (used only when param.mode == "massive") ──────
 
     def _is_massive(self):
         return self.param.get("mode") == "massive"
@@ -120,6 +89,46 @@ class Step(ABC):
                 outlog=outlog,
             ))
         return tasks
+
+
+class Step(MassiveMixin, ABC):
+    """Base class for all workflow steps.
+
+    Subclasses declare capabilities via class attributes:
+        runner_mode: "serial" | "parallel" | "single"
+            - "single"  : easy mode default, 1 task = 1 structure (legacy)
+            - "serial"  : massive mode, 1 array element runs K structures sequentially
+            - "parallel": massive mode, 1 array element runs K structures via Pool(K)
+        produces_dataset: True if collect() yields DeepH training data
+                          (engine exports these steps automatically)
+        type_alias(): returns the mcfg section key for this step's software
+                      config (default self.type; SCFStep overrides to 'fp').
+    """
+
+    name: str = ""
+    type: str = ""
+    runner_mode: str = "single"
+    produces_dataset: bool = False
+
+    def __init__(self, defn, param, mcfg, ctx):
+        self.defn = defn
+        self.param = param
+        self.mcfg = mcfg
+        self.ctx = ctx
+        self.name = defn["name"]
+
+    @abstractmethod
+    def prepare(self):
+        """Return list of dpdispatcher Task, or empty list if nothing to do.
+
+        In easy mode (default): each Task typically wraps one structure.
+        In massive mode: each Task wraps a manifest of K structures, run
+        via dlazy/_runner.py on a single Slurm array element.
+        """
+
+    @abstractmethod
+    def collect(self):
+        """Post-process after all tasks finish. Update ctx."""
 
     def type_alias(self):
         """Return the mcfg section key for this step's software config.

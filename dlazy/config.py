@@ -22,45 +22,36 @@ def load_param(path):
 
 
 def load_machine(path):
-    with open(path) as f:
-        cfg = json.load(f)
-    base = Path(path).resolve().parent
-    machine = Machine.load_from_dict(cfg["machine"])
-    resources = Resources.load_from_dict(cfg["resources"])
-
-    mcfg = {}
-    for section in ("olp", "infer", "fp", "deeph"):
-        sec = dict(cfg.get(section, {}))
-        for key in ("executable", "data_path", "infer_toml"):
-            if key in sec:
-                sec[key] = str((base / sec[key]).resolve())
-        mcfg[section] = sec
-
-    mcfg["job_name_prefix"] = cfg.get("job_name_prefix")
-    mcfg["massive"] = dict(cfg.get("massive", {}))
-
-    return machine, resources, mcfg
+    """Load machine.json in easy mode (uses batch_type as-is)."""
+    return _load_machine(path, massive=False)
 
 
 def load_machine_massive(path):
-    """Load machine.json for massive mode (batch_type forced to SlurmJobArray).
+    """Load machine.json for massive mode (forces SlurmJobArray, sets
+    resources.kwargs.slurm_job_size=1).
 
-    SlurmJobArray is a dpdispatcher built-in (registered via __init_subclass__).
-    Resources.kwargs.slurm_job_size defaults to 1, meaning each Task becomes
-    one array element. dlazy steps build one Task per K-structure manifest,
-    so 1 array element runs K structures via dlazy/_runner.py.
+    SlurmJobArray is a dpdispatcher built-in (registered via
+    __init_subclass__). Each Task becomes one array element; dlazy steps
+    build one Task per K-structure manifest, so 1 array element runs K
+    structures via dlazy/_runner.py.
     """
+    return _load_machine(path, massive=True)
+
+
+def _load_machine(path, massive=False):
     with open(path) as f:
         cfg = json.load(f)
     base = Path(path).resolve().parent
 
     machine_dict = dict(cfg["machine"])
-    machine_dict["batch_type"] = "SlurmJobArray"
+    if massive:
+        machine_dict["batch_type"] = "SlurmJobArray"
     machine = Machine.load_from_dict(machine_dict)
 
     res_dict = dict(cfg["resources"])
-    res_dict.setdefault("kwargs", {})
-    res_dict["kwargs"].setdefault("slurm_job_size", 1)
+    if massive:
+        res_dict.setdefault("kwargs", {})
+        res_dict["kwargs"].setdefault("slurm_job_size", 1)
     resources = Resources.load_from_dict(res_dict)
 
     mcfg = {}

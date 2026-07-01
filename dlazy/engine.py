@@ -143,16 +143,14 @@ class Workflow:
     def _aggregate_status(self, step_name):
         """Read restart/<step>/_status/_summary.ndjson and tally ok/fail.
 
-        Returns dict {'total': N, 'ok': M, 'fail': K} or None if no status
-        file exists yet.
+        Returns dict {'total': N, 'ok': M, 'fail': K, 'failed_sids': set}
+        or None if no status file exists yet. The last state per sid
+        counts (reruns may append twice).
         """
         summary = (Path(self.param["work_dir"]) / "restart" / step_name
                     / "_status" / "_summary.ndjson")
         if not summary.exists():
             return None
-        ok = fail = 0
-        seen = set()
-        # Only the LAST state per sid counts (reruns may append twice).
         last_state = {}
         for line in summary.read_text().splitlines():
             line = line.strip()
@@ -166,50 +164,48 @@ class Workflow:
             if not sid:
                 continue
             last_state[sid] = rec.get("state")
-        for state in last_state.values():
-            if state == "ok":
-                ok += 1
-            else:
-                fail += 1
-        return {"total": len(last_state), "ok": ok, "fail": fail}
+        ok = sum(1 for s in last_state.values() if s == "ok")
+        failed = {sid for sid, s in last_state.items() if s != "ok"}
+        return {"total": len(last_state), "ok": ok, "fail": len(failed),
+                "failed_sids": failed}
+
+    def _resolve_sid_filter(self, step_filter, retry_failed, only_sids):
+        """Resolve sid filter from --only-sids or --retry-failed.
+
+        Returns (sid_filter, should_return). sid_filter is None to run
+        all sids, or a set of sids to run. should_return=True means the
+        caller should abort the run (e.g. bad args).
+        """
+        if only_sids:
+            filter_set = set(s.strip() for s in only_sids.split(",") if s.strip())
+            print(f"[filter] only_sids: {len(filter_set)} sids")
+            return filter_set, False
+        if retry_failed:
+            if self.param.get("mode") != "massive":
+                print("[retry-failed] only meaningful in massive mode "
+                      "(easy mode already skips done sids)")
+                return None, False
+            if not step_filter:
+                print("[retry-failed] need --step to identify which step to retry")
+                return None, True
+            stats = self._aggregate_status(step_filter)
+            if stats is None:
+                print(f"[retry-failed] no _summary.ndjson for {step_filter}, "
+                      f"running full step")
+                return None, False
+            print(f"[retry-failed] {step_filter}: {len(stats['failed_sids'])} failed sids")
+            return stats["failed_sids"], False
+        return None, False
 
     def run(self, step_filter=None, dry_run=False,
              retry_failed=False, only_sids=None):
         name = self.param.get("name", "workflow")
         step_defs = self.param.get("steps", [])
 
-        # Resolve sid filter: either explicit --only-sids or --retry-failed
-        # reads aggregate_status from disk. Massive-mode only; in easy mode
-        # these flags are silently ignored since prepare already skips done.
-        sid_filter = None
-        if only_sids:
-            sid_filter = set(s.strip() for s in only_sids.split(",") if s.strip())
-            print(f"[filter] only_sids: {len(sid_filter)} sids")
-        elif retry_failed and self.param.get("mode") == "massive":
-            # Try each step (filtered by --step if given) for failed sids
-            if step_filter:
-                stats = self._aggregate_status(step_filter)
-                if stats is None:
-                    print(f"[retry-failed] no _summary.ndjson for {step_filter}, "
-                          f"running full step")
-                else:
-                    summary = (Path(self.param["work_dir"]) / "restart" / step_filter
-                                / "_status" / "_summary.ndjson")
-                    last_state = {}
-                    for line in summary.read_text().splitlines():
-                        line = line.strip()
-                        if not line:
-                            continue
-                        try:
-                            rec = json.loads(line)
-                        except json.JSONDecodeError:
-                            continue
-                        last_state[rec.get("sid")] = rec.get("state")
-                    sid_filter = {sid for sid, st in last_state.items() if st != "ok"}
-                    print(f"[retry-failed] {step_filter}: {len(sid_filter)} failed sids")
-            else:
-                print("[retry-failed] need --step to identify which step to retry")
-                return
+        sid_filter, should_return = self._resolve_sid_filter(
+            step_filter, retry_failed, only_sids)
+        if should_return:
+            return
         if sid_filter is not None:
             self.ctx["_sid_filter"] = sid_filter
 
