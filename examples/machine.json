@@ -23,11 +23,17 @@
     },
     "prepend_script": ["ulimit -l unlimited"]
   },
-  "openmx": {
+  "olp": {
     "executable": "/public/home/mind/software/openmx/3.9.9_devel/openmx",
     "data_path": "/public/home/mind/software/openmx/DFT_DATA19",
     "mpi_cmd": "mpirun -np {cpus}",
-    "module_path": "../co-opt-calc",
+    "nprocs": 8,
+    "nworkers": 7
+  },
+  "fp": {
+    "executable": "/public/home/mind/software/openmx/3.9.9_devel/openmx",
+    "data_path": "/public/home/mind/software/openmx/DFT_DATA19",
+    "mpi_cmd": "mpirun -np {cpus}",
     "cpus_per_task": 64
   },
   "deeph": {
@@ -39,7 +45,9 @@
     "log_level": "info",
     "random_seed": 137
   },
-  "job_name_prefix": "lz"
-  ,
-  "backward_files": ["hamiltonians_step*.h5", "openmx.out", "*.dat"]
+  "job_name_prefix": "lz",
+  "massive": {
+    "tasks_per_array": 5,
+    "group_size": 0
+  }
 }
