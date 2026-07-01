@@ -1,5 +1,4 @@
 import json
-import shutil
 from pathlib import Path
 
 from dpdispatcher import Task
@@ -22,72 +21,97 @@ class OLPStep(Step):
     def type_alias(self):
         return "olp"
 
+    def _generate_one(self, args):
+        """Worker fn for one OLP structure: generate openmx_in.dat with OverlapOnly.
+
+        Returns (sid, status). status: 'gen' | 'skip' | 'nogen'.
+        """
+        sid, poscar, work_dir, gen, force = args
+        step_dir = Path(work_dir) / "restart" / self.name / sid
+        step_dir.mkdir(parents=True, exist_ok=True)
+        overlap_file = step_dir / "overlap.h5"
+
+        if not force and overlap_file.exists():
+            return sid, "skip"
+
+        if not gen:
+            return sid, "nogen"
+
+        gen.generate(str(poscar), output_dir=str(step_dir),
+                     max_iter=1, scf_criterion=1e-3)
+        dat_path = step_dir / "openmx_in.dat"
+        if dat_path.exists():
+            with open(dat_path, "a") as f:
+                f.write("\nscf.OverlapOnly     On\n")
+        return sid, "gen"
+
     def prepare(self):
-        tasks = []
         work_dir = Path(self.param["work_dir"])
         force = self.defn.get("force", False)
 
         executable = self._get_software("executable", "openmx")
-        data_path = self._get_software("data_path")
         mpi_cmd_tmpl = self._get_software("mpi_cmd", "mpirun -np {cpus}")
-
         nprocs = self._get_software("nprocs", 8)
-        nworkers = self._get_software("nworkers", 7)
 
         Gen = dlazy_config.resolve_openmx_generator()
+        data_path = self._get_software("data_path")
         gen = Gen(data_path=data_path) if Gen and data_path else None
 
         structures = utils.read_structures(self.param["structures"])
+        args_list = [(sid, poscar, work_dir, gen, force) for sid, poscar in structures]
 
-        total = len(structures)
-        done = 0
-        n_gen = 0
-        n_skip = 0
-        pending = []
+        # Generate inputs in parallel in massive mode (or serial in easy mode)
+        if self._is_massive() and gen and len(args_list) > 1:
+            import multiprocessing
+            nproc = min(8, multiprocessing.cpu_count(), len(args_list))
+            with multiprocessing.Pool(nproc) as pool:
+                results = pool.map(self._generate_one, args_list)
+        else:
+            results = [self._generate_one(a) for a in args_list]
 
-        for sid, poscar in structures:
-            done += 1
-            step_dir = work_dir / "restart" / self.name / sid
-            step_dir.mkdir(parents=True, exist_ok=True)
+        counts = {}
+        for sid, status in results:
+            counts[status] = counts.get(status, 0) + 1
+        utils.print_progress_bar(len(structures), len(structures), self.name)
+        parts = [f"{v} {k}" for k, v in counts.items() if v]
+        if parts:
+            print(f"  [{self.name}] " + ", ".join(parts))
+        for sid, status in results:
+            if status == "nogen":
+                print(f"  WARNING: no generator for {sid}/{self.name}")
 
-            overlap_file = step_dir / "overlap.h5"
-            if not force and overlap_file.exists():
-                n_skip += 1
-                utils.update_progress(done, total, self.name)
-                continue
-
-            if gen:
-                gen.generate(str(poscar), output_dir=str(step_dir),
-                             max_iter=1, scf_criterion=1e-3)
-                n_gen += 1
-            else:
-                print(f"\n  WARNING: no generator for {sid}/{self.name}")
-                continue
-
-            dat_path = step_dir / "openmx_in.dat"
-            if dat_path.exists():
-                with open(dat_path, "a") as f:
-                    f.write("\nscf.OverlapOnly     On\n")
-
-            pending.append(sid)
-            utils.update_progress(done, total, self.name)
-
-        print()
-        if n_gen or n_skip:
-            print(f"  [{self.name}] {n_gen} gen, {n_skip} skip")
-
+        # In easy mode, OLP already used a parallel runner (_olp_parallel.py).
+        # In massive mode, use the unified _runner.py with --mode parallel.
+        # Both split pending sids into batches of nworkers.
+        pending = [sid for sid, status in results if status == "gen"]
         if not pending:
             return []
 
-        # Copy parallel worker script to work_dir
+        if self._is_massive():
+            return self.build_manifest_tasks(
+                pending,
+                exe=executable,
+                mpi_cmd_tmpl=mpi_cmd_tmpl,
+                cpus=nprocs,
+                forward_extra=[f"restart/{self.name}/*/openmx_in.dat"],
+                backward_files=[f"restart/{self.name}/*/overlap.h5",
+                                f"restart/{self.name}/*/info.json",
+                                f"restart/{self.name}/*/openmx.std"],
+                outlog="olp_runner.out",
+            )
+
+        # easy mode: keep legacy _olp_parallel.py batching
+        nworkers = self._get_software("nworkers", 7)
+        import shutil
         script_src = Path(__file__).parent / "_olp_parallel.py"
         script_dst = work_dir / "_olp_parallel.py"
         shutil.copy2(script_src, script_dst)
 
-        # Split pending into batches of nworkers
         batches = [pending[i:i + nworkers] for i in range(0, len(pending), nworkers)]
-        print(f"  nworkers={nworkers}, nprocs={nprocs}, {len(batches)} batch(es), {len(pending)} structures")
+        print(f"  nworkers={nworkers}, nprocs={nprocs}, "
+              f"{len(batches)} batch(es), {len(pending)} structures")
 
+        tasks = []
         for batch_idx, sids in enumerate(batches):
             manifest_name = f"_olp_manifest_{batch_idx}.json"
             manifest_path = work_dir / "restart" / self.name / manifest_name
@@ -110,7 +134,6 @@ class OLPStep(Step):
                                 f"restart/{self.name}/_olp_manifest_*.json"],
                 outlog="_olp_parallel.out",
             ))
-
         return tasks
 
     def collect(self):
