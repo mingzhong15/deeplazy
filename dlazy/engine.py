@@ -106,6 +106,16 @@ class Workflow:
         base = Path(self.param["_base"])
         work_dir = Path(self.param["work_dir"])
         tmp_hash = base / "tmp" / step_name / sub.submission_hash if step_name else base / "tmp" / sub.submission_hash
+
+        if self.param.get("mode") == "massive":
+            # Massive mode: work_dir is the shared filesystem; wf_runner
+            # writes outputs there directly (no forward/backward copy in
+            # LocalContext because forward/backward files are symlinks).
+            # We only need to remove the staging tree, not move anything.
+            shutil.rmtree(tmp_hash, ignore_errors=True)
+            record.remove(sub.submission_hash)
+            return
+
         patterns = self.mcfg.get(step_name, {}).get("backward_files") if step_name else None
 
         if tmp_hash.is_dir():
@@ -129,6 +139,39 @@ class Workflow:
             shutil.rmtree(tmp_hash, ignore_errors=True)
 
         record.remove(sub.submission_hash)
+
+    def _aggregate_status(self, step_name):
+        """Read restart/<step>/_status/_summary.ndjson and tally ok/fail.
+
+        Returns dict {'total': N, 'ok': M, 'fail': K} or None if no status
+        file exists yet.
+        """
+        summary = (Path(self.param["work_dir"]) / "restart" / step_name
+                    / "_status" / "_summary.ndjson")
+        if not summary.exists():
+            return None
+        ok = fail = 0
+        seen = set()
+        # Only the LAST state per sid counts (reruns may append twice).
+        last_state = {}
+        for line in summary.read_text().splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                rec = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            sid = rec.get("sid")
+            if not sid:
+                continue
+            last_state[sid] = rec.get("state")
+        for state in last_state.values():
+            if state == "ok":
+                ok += 1
+            else:
+                fail += 1
+        return {"total": len(last_state), "ok": ok, "fail": fail}
 
     def run(self, step_filter=None, dry_run=False):
         name = self.param.get("name", "workflow")
@@ -251,6 +294,10 @@ class Workflow:
                 elapsed = int(time.time() - t0)
                 parts = [f"{s}:{c}" for s, c in sorted(states.items())]
                 line = f"\r  [elapsed {elapsed // 60:>2}m {elapsed % 60:>2}s]  {'  '.join(parts)}"
+                if self.param.get("mode") == "massive":
+                    stats = self._aggregate_status(step.name)
+                    if stats:
+                        line += f"  | ok:{stats['ok']} fail:{stats['fail']}/{stats['total']}"
                 print(f"{line:<70}", end="", flush=True)
 
             print()
@@ -266,7 +313,13 @@ class Workflow:
             step.collect()
             self._save_phase(step.name, "02.collected")
 
-            if defn.get("type") in ("scf", "scf-restart"):
+            if self.param.get("mode") == "massive":
+                stats = self._aggregate_status(step.name)
+                if stats:
+                    print(f"  [{step.name}] final: ok={stats['ok']}/{stats['total']} "
+                          f"fail={stats['fail']}")
+
+            if step.produces_dataset:
                 from .exporter import export_step_dataset
                 export_step_dataset(step.name,
                     structures_file=self.param["structures"],
