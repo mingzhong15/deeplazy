@@ -19,8 +19,15 @@ dependencies = [
 [project.scripts]
 dlazy = "dlazy.__main__:main"
 
+[project.optional-dependencies]
+dev = ["pytest>=7.0"]
+
 [tool.setuptools.packages.find]
 include = ["dlazy*"]
 
 [tool.setuptools.package-data]
 dlazy = ["static/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
