@@ -10,6 +10,7 @@ from dpdispatcher import Task
 from . import register_step
 from .. import config
 from .. import utils
+from .base import Step
 
 
 # ── TOML helpers ──────────────────────────────────────────────────────────────
@@ -89,16 +90,10 @@ def generate_infer_toml(*, inputs_dir, outputs_dir, model_dir,
 # ── Step ──────────────────────────────────────────────────────────────────────
 
 @register_step("deeph")
-class DeepHStep:
-    name: str = ""
+class DeepHStep(Step):
     type: str = "deeph"
-
-    def __init__(self, defn, param, mcfg, ctx):
-        self.defn = defn
-        self.param = param
-        self.mcfg = mcfg
-        self.ctx = ctx
-        self.name = defn["name"]
+    runner_mode: str = "single"
+    produces_dataset: bool = False
 
     def _resolve(self, key):
         val = self.defn.get(key)

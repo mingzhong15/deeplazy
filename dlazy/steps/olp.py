@@ -7,22 +7,20 @@ from dpdispatcher import Task
 from .. import config as dlazy_config
 from .. import utils
 from . import register_step
+from .base import Step
 
 
 @register_step("olp")
-class OLPStep:
-    name: str = ""
+class OLPStep(Step):
     type: str = "olp"
-
-    def __init__(self, defn, param, mcfg, ctx):
-        self.defn = defn
-        self.param = param
-        self.mcfg = mcfg
-        self.ctx = ctx
-        self.name = defn["name"]
+    runner_mode: str = "parallel"
+    produces_dataset: bool = False
 
     def _get_software(self, key, default=None):
         return self.mcfg.get("olp", {}).get(key, default)
+
+    def type_alias(self):
+        return "olp"
 
     def prepare(self):
         tasks = []

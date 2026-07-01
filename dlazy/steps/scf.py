@@ -5,19 +5,14 @@ from dpdispatcher import Task
 from .. import config as dlazy_config
 from .. import utils
 from . import register_step
+from .base import Step
 
 
 @register_step("scf")
-class SCFStep:
-    name: str = ""
+class SCFStep(Step):
     type: str = "scf"
-
-    def __init__(self, defn, param, mcfg, ctx):
-        self.defn = defn
-        self.param = param
-        self.mcfg = mcfg
-        self.ctx = ctx
-        self.name = defn["name"]
+    runner_mode: str = "serial"
+    produces_dataset: bool = True
 
     def _get_openmx(self, key, default=None):
         return self.defn.get(key, self.param.get("openmx", {}).get(key, default))
@@ -27,6 +22,9 @@ class SCFStep:
 
     def _get_deeph(self, key, default=None):
         return self.mcfg.get("deeph", {}).get(key, default)
+
+    def type_alias(self):
+        return "fp"
 
     def _resolve_deeph_dir(self):
         ctx_dir = self.ctx.get("_deeph_dir")
@@ -200,5 +198,7 @@ class SCFStep:
 
 @register_step("scf-restart")
 class SCFRestartStep(SCFStep):
+    runner_mode: str = "serial"
+    produces_dataset: bool = True
     def prepare(self):
         return self._prepare(check_pred=True)

@@ -69,6 +69,7 @@ class Workflow:
 
     def collect_results(self, step_filter=None, all_sids=False):
         from .exporter import export_step_dataset, package_datasets
+        from . import steps as step_mod
         rec = self._load_record()
         work_dir = Path(self.param["work_dir"])
         for defn in self.param.get("steps", []):
@@ -77,7 +78,11 @@ class Workflow:
                 continue
             if sn not in rec:
                 continue
-            if defn.get("type") not in ("scf", "scf-restart"):
+            try:
+                step_cls = step_mod._registry[defn.get("type")]
+            except KeyError:
+                continue
+            if not getattr(step_cls, "produces_dataset", False):
                 continue
             print(f"--- Export: {sn} ---")
             export_step_dataset(sn, structures_file=self.param["structures"],
