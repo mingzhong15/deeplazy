@@ -58,6 +58,10 @@ class OLPStep(Step):
         gen = Gen(data_path=data_path) if Gen and data_path else None
 
         structures = utils.read_structures(self.param["structures"])
+        sid_filter = self.ctx.get("_sid_filter")
+        if sid_filter is not None:
+            structures = [(sid, p) for sid, p in structures if sid in sid_filter]
+            print(f"  [{self.name}] sid filter: {len(structures)} of {len(sid_filter)} requested")
         args_list = [(sid, poscar, work_dir, gen, force) for sid, poscar in structures]
 
         # Generate inputs in parallel in massive mode (or serial in easy mode)

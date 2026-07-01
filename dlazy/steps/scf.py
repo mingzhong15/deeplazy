@@ -155,6 +155,12 @@ class SCFStep(Step):
         init_source = self.defn.get("init_from", "deeph")
         deeph_dir = self._resolve_deeph_dir() if init_source == "deeph" else None
 
+        # Honor _sid_filter if set (massive --retry-failed / --only-sids)
+        sid_filter = self.ctx.get("_sid_filter")
+        if sid_filter is not None:
+            structures = [(sid, p) for sid, p in structures if sid in sid_filter]
+            print(f"  [{self.name}] sid filter: {len(structures)} of {len(sid_filter)} requested")
+
         args_list = [(sid, poscar, work_dir, gen, openmx_defaults,
                       init_source, deeph_dir, prev_results, check_pred)
                      for sid, poscar in structures]

@@ -11,6 +11,10 @@ def main():
     run.add_argument("machine", help="machine.json")
     run.add_argument("--step", default=None, help="Only run a specific step by name")
     run.add_argument("--dry-run", action="store_true", help="Print tasks without submitting")
+    run.add_argument("--retry-failed", action="store_true",
+        help="Massive mode: retry only sids marked fail in --step's _summary.ndjson")
+    run.add_argument("--only-sids", default=None,
+        help="Massive mode: run only these sids (comma-separated)")
 
     collect = sub.add_parser("collect", help="Export SCF results to DeepH training format")
     collect.add_argument("param", help="param.json")
@@ -25,7 +29,8 @@ def main():
         from .engine import Workflow
         wf = Workflow(args.param, args.machine)
         if args.command == "run":
-            wf.run(step_filter=args.step, dry_run=args.dry_run)
+            wf.run(step_filter=args.step, dry_run=args.dry_run,
+                    retry_failed=args.retry_failed, only_sids=args.only_sids)
         else:
             wf.collect_results(step_filter=args.step, all_sids=args.all)
 

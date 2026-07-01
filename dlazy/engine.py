@@ -173,9 +173,45 @@ class Workflow:
                 fail += 1
         return {"total": len(last_state), "ok": ok, "fail": fail}
 
-    def run(self, step_filter=None, dry_run=False):
+    def run(self, step_filter=None, dry_run=False,
+             retry_failed=False, only_sids=None):
         name = self.param.get("name", "workflow")
         step_defs = self.param.get("steps", [])
+
+        # Resolve sid filter: either explicit --only-sids or --retry-failed
+        # reads aggregate_status from disk. Massive-mode only; in easy mode
+        # these flags are silently ignored since prepare already skips done.
+        sid_filter = None
+        if only_sids:
+            sid_filter = set(s.strip() for s in only_sids.split(",") if s.strip())
+            print(f"[filter] only_sids: {len(sid_filter)} sids")
+        elif retry_failed and self.param.get("mode") == "massive":
+            # Try each step (filtered by --step if given) for failed sids
+            if step_filter:
+                stats = self._aggregate_status(step_filter)
+                if stats is None:
+                    print(f"[retry-failed] no _summary.ndjson for {step_filter}, "
+                          f"running full step")
+                else:
+                    summary = (Path(self.param["work_dir"]) / "restart" / step_filter
+                                / "_status" / "_summary.ndjson")
+                    last_state = {}
+                    for line in summary.read_text().splitlines():
+                        line = line.strip()
+                        if not line:
+                            continue
+                        try:
+                            rec = json.loads(line)
+                        except json.JSONDecodeError:
+                            continue
+                        last_state[rec.get("sid")] = rec.get("state")
+                    sid_filter = {sid for sid, st in last_state.items() if st != "ok"}
+                    print(f"[retry-failed] {step_filter}: {len(sid_filter)} failed sids")
+            else:
+                print("[retry-failed] need --step to identify which step to retry")
+                return
+        if sid_filter is not None:
+            self.ctx["_sid_filter"] = sid_filter
 
         print(f"========== dlazy: {name} ==========")
         print(f"Work dir: {self.param.get('work_dir', '?')}")
