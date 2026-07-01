@@ -97,7 +97,7 @@ class Workflow:
     def _cleanup_step(self, sub, step_name=None, step_type=None):
         base = Path(self.param["_base"])
         work_dir = Path(self.param["work_dir"])
-        tmp_hash = base / "tmp" / step_name / sub.submission_hash if step_name else base / "tmp" / sub.submission_hash
+        tmp_hash = base / "tmp" / sub.submission_hash
         patterns = None
         if step_type:
             patterns = (self.mcfg.get(step_type, {}).get("backward_files")
@@ -171,7 +171,7 @@ class Workflow:
                 self._save_phase(step.name, "00.prepared")
 
             base = Path(self.param["_base"])
-            self.machine.context.temp_remote_root = str(base / "tmp" / step.name)
+            self.machine.context.temp_remote_root = str(base / "tmp")
             self.machine.context.temp_local_root = str(work_dir)
 
             self._set_job_name(step.name)
